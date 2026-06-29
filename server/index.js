@@ -99,6 +99,10 @@ const MODE_CONFIG = {
 };
 const MODES = Object.keys(MODE_CONFIG);
 
+// Wager mode: fraction of the stake LOST on a wrong answer.
+// 1 = lose the whole stake, 0.5 = lose half, 0 = lose nothing. Change freely.
+const WAGER_LOSS_FACTOR = 1;
+
 // Teams a player can belong to. Add more ids here (and a matching colour in the
 // client CSS / TEAM_LABEL) to support more than two teams.
 const TEAMS = ['red', 'blue', 'green', 'yellow'];
@@ -106,7 +110,8 @@ const REVEAL_MS = 4200;
 
 const DEFAULT_SETTINGS = {
   mode: 'classic', category: 0, difficulty: 'any', amount: 10, questionTime: 20,
-  teamMode: false // false = Alle gegen alle (FFA), true = Teams
+  teamMode: false, // false = Alle gegen alle (FFA), true = Teams
+  streaks: true    // show/sound streaks for consecutive correct answers
 };
 
 // ---------------------------------------------------------------------------
@@ -130,7 +135,8 @@ function createRoom(hostId) {
     settings: { ...DEFAULT_SETTINGS },
     players: new Map(),
     questions: [], currentIndex: -1, questionStartedAt: 0,
-    timer: null, revealTimer: null
+    timer: null, revealTimer: null,
+    paused: false, remainingMs: 0
   };
   rooms.set(code, room);
   return room;
@@ -142,14 +148,14 @@ function newPlayer(id, name, team, icon) {
   return {
     id, name, icon, score: 0, alive: true, team,
     answer: null, answerText: '', answered: false, answerTime: 0,
-    wager: 0, lastGain: 0, lastCorrect: false, connected: true
+    wager: 0, lastGain: 0, lastCorrect: false, streak: 0, connected: true
   };
 }
 
 function publicPlayers(room) {
   return [...room.players.values()].map((p) => ({
     id: p.id, name: p.name, icon: p.icon, score: p.score, alive: p.alive, team: p.team,
-    connected: p.connected, isHost: p.id === room.hostId, hasAnswered: p.answered
+    streak: p.streak, connected: p.connected, isHost: p.id === room.hostId, hasAnswered: p.answered
   }));
 }
 
@@ -198,7 +204,7 @@ function startGame(room) {
   for (const p of room.players.values()) {
     p.score = cfg.startScore || 0;
     p.alive = true; p.answer = null; p.answerText = ''; p.answered = false;
-    p.answerTime = 0; p.wager = 0; p.lastGain = 0; p.lastCorrect = false;
+    p.answerTime = 0; p.wager = 0; p.lastGain = 0; p.lastCorrect = false; p.streak = 0;
   }
 
   room.questions = buildRound(cfg.type, {
@@ -223,6 +229,7 @@ const activePlayerCount = (room) => [...room.players.values()].filter((p) => p.a
 
 function nextQuestion(room) {
   clearRoomTimers(room);
+  room.paused = false;
   room.currentIndex += 1;
   const cfg = MODE_CONFIG[room.settings.mode];
 
@@ -287,7 +294,7 @@ function revealAnswer(room) {
       if (cfg.score === 'wager') {
         const w = p.wager || 0;
         if (correct) { p.score += w; p.lastGain = w; }
-        else { const loss = Math.min(w, p.score); p.score -= loss; p.lastGain = -loss; }
+        else { const loss = Math.min(Math.round(w * WAGER_LOSS_FACTOR), p.score); p.score -= loss; p.lastGain = -loss; }
       } else if (correct) {
         let pts = 100;
         if (cfg.score === 'speed') {
@@ -302,6 +309,24 @@ function revealAnswer(room) {
     }
   }
 
+  // Streaks: increment on a correct answer, reset on a miss. Tracked always;
+  // shown/sounded on the client only when settings.streaks is on.
+  for (const p of players) {
+    if (cfg.elim && !p.alive) continue;
+    p.streak = p.lastCorrect ? (p.streak || 0) + 1 : 0;
+  }
+
+  // Answer distribution (choice types only): how many picked each option.
+  let answerCounts = null;
+  if (q.options) {
+    answerCounts = q.options.map(() => 0);
+    for (const p of players) {
+      if (p.answered && typeof p.answer === 'number' && p.answer >= 0 && p.answer < answerCounts.length) {
+        answerCounts[p.answer]++;
+      }
+    }
+  }
+
   io.to(room.code).emit('reveal', {
     type: q.type,
     mode: room.settings.mode,
@@ -310,6 +335,7 @@ function revealAnswer(room) {
     correctText: q.display || null,
     correctValue: q.value ?? null,
     unit: q.unit || null,
+    answerCounts,
     players: publicPlayers(room),
     teamScores: teamScores(room),
     results: players.map((p) => ({
@@ -423,6 +449,7 @@ io.on('connection', (socket) => {
     if (Number.isFinite(+settings.amount)) s.amount = Math.min(Math.max(Math.round(+settings.amount), 3), 30);
     if (Number.isFinite(+settings.questionTime)) s.questionTime = Math.min(Math.max(Math.round(+settings.questionTime), 5), 90);
     if (typeof settings.teamMode === 'boolean') s.teamMode = settings.teamMode; // Teams vs. FFA toggle
+    if (typeof settings.streaks === 'boolean') s.streaks = settings.streaks;
     broadcastLobby(room);
   });
 
@@ -440,9 +467,32 @@ io.on('connection', (socket) => {
     startGame(room);
   });
 
+  // Host pauses the running question: freeze the timer (remember the remaining
+  // time) and block answers until resumed.
+  socket.on('pauseGame', () => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room || room.hostId !== socket.id) return;
+    if (room.state !== 'question' || room.paused) return;
+    const elapsed = Date.now() - room.questionStartedAt;
+    room.remainingMs = Math.max(0, room.settings.questionTime * 1000 - elapsed);
+    clearTimeout(room.timer); room.timer = null;
+    room.paused = true;
+    io.to(room.code).emit('paused');
+  });
+
+  socket.on('resumeGame', () => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room || room.hostId !== socket.id || !room.paused) return;
+    room.paused = false;
+    // Shift the start time so answerTime (speed scoring) stays correct.
+    room.questionStartedAt = Date.now() - (room.settings.questionTime * 1000 - room.remainingMs);
+    room.timer = setTimeout(() => revealAnswer(room), room.remainingMs);
+    io.to(room.code).emit('resumed', { time: Math.ceil(room.remainingMs / 1000) });
+  });
+
   socket.on('submitAnswer', (payload = {}) => {
     const room = rooms.get(socket.data.roomCode);
-    if (!room || room.state !== 'question') return;
+    if (!room || room.state !== 'question' || room.paused) return; // no input while paused
     const player = room.players.get(socket.id);
     if (!player || !player.connected || player.answered) return;
     const cfg = MODE_CONFIG[room.settings.mode];

@@ -44,6 +44,8 @@ const PLAYER_ICONS = [
 ];
 const ICON_BY_ID = Object.fromEntries(PLAYER_ICONS.map((i) => [i.id, i.emoji]));
 const iconEmoji = (id) => ICON_BY_ID[id] || '⭐'; // fallback for unknown ids
+
+const STREAK_MIN = 3; // consecutive correct answers before a 🔥 streak shows
 const DIFFICULTIES = ['any', 'easy', 'medium', 'hard'];
 const CATEGORIES = [
   { id: 0, key: 'any' }, { id: 9, key: 'general' }, { id: 17, key: 'science' },
@@ -71,7 +73,9 @@ const state = {
   myWager: 0,
   questionData: null,
   reveal: null,
-  timerInterval: null
+  timerInterval: null,
+  paused: false,
+  myStreak: 0
 };
 
 // Pick the field of a {de,en} object for the current UI language.
@@ -336,6 +340,7 @@ function pushSettings() {
   socket.emit('updateSettings', {
     mode: getSelectedMode(),
     teamMode: $('#teamToggle .active')?.dataset.teamMode === 'teams',
+    streaks: $('#streakToggle .active')?.dataset.streaks === 'on',
     category: Number($('#categorySelect').value),
     difficulty: $('#difficultySelect').value,
     amount: Number($('#amountInput').value),
@@ -384,6 +389,17 @@ $('#teamToggle').addEventListener('click', (e) => {
   pushSettings();
 });
 
+// --- Streaks on/off toggle ---------------------------------------------------
+function setStreaks(on) {
+  $$('#streakToggle button').forEach((b) => b.classList.toggle('active', (b.dataset.streaks === 'on') === on));
+}
+$('#streakToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn || !isHost()) return;
+  setStreaks(btn.dataset.streaks === 'on');
+  pushSettings();
+});
+
 ['#categorySelect', '#difficultySelect', '#amountInput', '#timeInput'].forEach((sel) => {
   $(sel).addEventListener('change', () => { updateModeDesc(); pushSettings(); });
 });
@@ -395,6 +411,7 @@ function syncSettingsToUI() {
   if (!s) return;
   setModeSelected(s.mode);
   setTeamMode(!!s.teamMode);
+  setStreaks(s.streaks !== false);
   $('#categorySelect').value = String(s.category);
   $('#difficultySelect').value = s.difficulty;
   $('#amountInput').value = s.amount;
@@ -493,7 +510,23 @@ socket.on('gameError', (data) => {
 // ---------------------------------------------------------------------------
 socket.on('gameStarted', (data) => {
   state.mode = data.mode;
+  displayedScores.clear(); // fresh count-up baseline for the new game
+  state.myStreak = 0;
 });
+
+// Distribution bars (A/B/C/D) on each answer button after the reveal.
+function renderAnswerCounts(data) {
+  if (!data.answerCounts) return;
+  const total = data.answerCounts.reduce((a, b) => a + b, 0) || 1;
+  $$('#answersGrid .answer-btn').forEach((b, i) => {
+    const c = data.answerCounts[i] || 0;
+    b.style.setProperty('--pct', `${Math.round((c / total) * 100)}%`);
+    b.classList.add('dist');
+    let badge = b.querySelector('.ans-count');
+    if (!badge) { badge = document.createElement('span'); badge.className = 'ans-count'; b.appendChild(badge); }
+    badge.textContent = c;
+  });
+}
 
 socket.on('question', (data) => {
   state.questionData = data;
@@ -503,7 +536,15 @@ socket.on('question', (data) => {
   state.myWager = 0;
   state.reveal = null;
   state.players = data.players;
+  // Seed displayed scores so the first reveal counts up from the pre-reveal value.
+  data.players.forEach((p) => { if (!displayedScores.has(p.id)) displayedScores.set(p.id, p.score); });
   $('#revealDetail').style.display = 'none';
+
+  // reset pause UI for the new question
+  state.paused = false;
+  $('#pauseOverlay').classList.add('hidden');
+  $('#pauseBtn').textContent = '⏸';
+  $('#pauseBtn').classList.toggle('hidden', !isHost()); // only the host sees Pause
 
   showScreen('game');
   renderQuestionStatics();
@@ -514,6 +555,28 @@ socket.on('question', (data) => {
   const me = data.players.find((p) => p.id === state.you);
   if (state.mode === 'survival' && me && !me.alive) setStatus('eliminated', 'bad');
   else setStatus('', '');
+});
+
+// --- Host pause / resume -----------------------------------------------------
+$('#pauseBtn').addEventListener('click', () => {
+  if (!isHost()) return;
+  socket.emit(state.paused ? 'resumeGame' : 'pauseGame');
+});
+
+socket.on('paused', () => {
+  state.paused = true;
+  freezeTimer();
+  $('#pauseOverlay').classList.remove('hidden');
+  $('#pauseBtn').textContent = '▶';
+  audio.sfx('pause');
+});
+
+socket.on('resumed', (data) => {
+  state.paused = false;
+  $('#pauseOverlay').classList.add('hidden');
+  $('#pauseBtn').textContent = '⏸';
+  audio.sfx('resume');
+  resumeTimer(data.time); // continue the bar from where it was, over the remaining time
 });
 
 function renderQuestionStatics() {
@@ -631,6 +694,8 @@ socket.on('reveal', (data) => {
   state.players = data.players;
   state.reveal = data;
 
+  audio.sfx('reveal'); // subtle chime as the answers/distribution are revealed
+
   const choiceTypes = ['multiple', 'truefalse', 'higherlower'];
   if (choiceTypes.includes(data.type)) {
     $$('.answer-btn').forEach((b, i) => {
@@ -640,6 +705,7 @@ socket.on('reveal', (data) => {
       if (i === data.correctIndex) b.classList.add('correct');
       else if (i === state.myAnswer) b.classList.add('wrong');
     });
+    renderAnswerCounts(data); // A/B/C/D distribution bars
   } else {
     const myRes = (data.results || []).find((r) => r.id === state.you);
     const form = $('#textForm');
@@ -651,6 +717,18 @@ socket.on('reveal', (data) => {
 
   applyReveal(data);
   renderLiveScores(state.players);
+  animateScoreboard(); // count the points up + tick sound
+
+  // Personal feedback sound (streak takes priority over a normal "correct").
+  const myRes = (data.results || []).find((r) => r.id === state.you);
+  const me = state.players.find((p) => p.id === state.you);
+  const myStreak = me?.streak || 0;
+  if (state.settings?.streaks && myRes?.correct && myStreak >= STREAK_MIN && myStreak > (state.myStreak || 0)) {
+    setTimeout(() => audio.sfx('streak'), 240);
+  } else if (myRes) {
+    setTimeout(() => audio.sfx(myRes.correct ? 'correct' : 'wrong'), 200);
+  }
+  state.myStreak = myStreak;
 });
 
 // Status line + detail line shown on reveal (re-runnable for live language switch).
@@ -693,16 +771,60 @@ function setStatus(key, cls, ...args) {
   el.textContent = key ? t(key, ...args) : '';
 }
 
+// Displayed (animated) score per player id — lets the number count up smoothly
+// instead of snapping to the new value.
+const displayedScores = new Map();
+let scoreRAF = 0;
+let tickTimer = 0;
+
 function renderLiveScores(players) {
   const teamMode = state.settings?.teamMode;
+  const streaksOn = state.settings?.streaks;
   const sorted = [...players].sort((a, b) => b.score - a.score);
   $('#liveScores').innerHTML = sorted.map((p) => {
+    const shown = displayedScores.has(p.id) ? displayedScores.get(p.id) : p.score;
     const tdot = teamMode && p.team ? `<span class="tdot ${p.team}"></span>` : '';
+    const streak = (streaksOn && p.streak >= STREAK_MIN) ? `<span class="streak-badge">🔥${p.streak}</span>` : '';
     const cls = ['score-chip'];
     if (p.hasAnswered) cls.push('answered');
     if (state.mode === 'survival' && !p.alive) cls.push('dead');
-    return `<span class="${cls.join(' ')}">${tdot}<span class="chip-av">${iconEmoji(p.icon)}</span>${escapeHtml(p.name)} <span class="sc">${p.score}</span></span>`;
+    return `<span class="${cls.join(' ')}" data-id="${p.id}">${tdot}<span class="chip-av">${iconEmoji(p.icon)}</span>${escapeHtml(p.name)}${streak} <span class="sc">${shown}</span></span>`;
   }).join('');
+}
+
+// Tween every player's displayed score from its current value to the new target.
+// While any score is rising, a soft "tick" SFX plays and stops cleanly at the end.
+function animateScoreboard() {
+  const els = {};
+  $$('#liveScores .score-chip').forEach((chip) => { els[chip.dataset.id] = chip.querySelector('.sc'); });
+  const from = {}, to = {};
+  let anyUp = false;
+  state.players.forEach((p) => {
+    from[p.id] = displayedScores.has(p.id) ? displayedScores.get(p.id) : p.score;
+    to[p.id] = p.score;
+    if (to[p.id] > from[p.id]) anyUp = true;
+  });
+
+  cancelAnimationFrame(scoreRAF);
+  clearInterval(tickTimer);
+
+  const dur = 750, t0 = performance.now();
+  if (anyUp) {
+    let n = 0;
+    tickTimer = setInterval(() => audio.sfx('tick', { freq: 720 + (n++ % 8) * 38 }), 65);
+  }
+  const stepFn = (now) => {
+    const k = Math.min(1, (now - t0) / dur);
+    const e = 1 - Math.pow(1 - k, 3); // easeOutCubic — fast then settles
+    state.players.forEach((p) => {
+      const val = Math.round(from[p.id] + (to[p.id] - from[p.id]) * e);
+      displayedScores.set(p.id, val);
+      if (els[p.id]) els[p.id].textContent = val;
+    });
+    if (k < 1) { scoreRAF = requestAnimationFrame(stepFn); }
+    else { clearInterval(tickTimer); state.players.forEach((p) => displayedScores.set(p.id, p.score)); }
+  };
+  scoreRAF = requestAnimationFrame(stepFn);
 }
 
 // Timer
@@ -731,6 +853,33 @@ function startTimer(seconds) {
 function stopTimer() {
   if (state.timerInterval) { clearInterval(state.timerInterval); state.timerInterval = null; }
   $('#timerNum').classList.remove('low');
+}
+
+// Freeze the timer bar at its current position (on pause).
+function freezeTimer() {
+  if (state.timerInterval) { clearInterval(state.timerInterval); state.timerInterval = null; }
+  const bar = $('#timerBar');
+  const w = getComputedStyle(bar).width; // current animated px width
+  bar.style.transition = 'none';
+  bar.style.width = w;
+}
+
+// Continue the bar from its frozen position down to 0 over the remaining seconds.
+function resumeTimer(seconds) {
+  const bar = $('#timerBar');
+  const num = $('#timerNum');
+  void bar.offsetWidth; // commit the frozen width before transitioning
+  bar.style.transition = `width ${seconds}s linear`;
+  bar.style.width = '0%';
+  let remaining = seconds;
+  num.textContent = remaining;
+  num.classList.toggle('low', remaining <= 5 && remaining > 0);
+  state.timerInterval = setInterval(() => {
+    remaining -= 1;
+    num.textContent = Math.max(0, remaining);
+    num.classList.toggle('low', remaining <= 5 && remaining > 0);
+    if (remaining <= 0) stopTimer();
+  }, 1000);
 }
 
 // ---------------------------------------------------------------------------
@@ -834,15 +983,21 @@ const audio = new AudioManager({
   defaultVolume: 0.4
 });
 
-// --- Music UI (volume slider + mute) — delegated to the AudioManager. --------
+// --- Volume UI: independent MUSIC + SFX sliders, both persisted. --------------
 const volSlider = $('#volSlider');
+const sfxSlider = $('#sfxSlider');
 const muteBtn = $('#muteBtn');
 function updateMusicUI() {
   volSlider.value = Math.round(audio.volume * 100);
+  sfxSlider.value = Math.round(audio.getSfxVolume() * 100);
   muteBtn.textContent = audio.isSilent() ? '🔇' : '🔊';
   muteBtn.classList.toggle('off', audio.isSilent());
 }
 volSlider.addEventListener('input', () => { audio.setVolume(volSlider.value / 100); updateMusicUI(); });
+sfxSlider.addEventListener('input', () => {
+  audio.setSfxVolume(sfxSlider.value / 100);
+  audio.sfx('tick', { freq: 760 }); // tiny preview so you can hear the level
+});
 muteBtn.addEventListener('click', () => { audio.toggleMute(); updateMusicUI(); });
 updateMusicUI();
 
@@ -854,6 +1009,7 @@ let introDone = false;
 function startIntroSequence() {
   if (intro.classList.contains('playing')) return;
   intro.classList.add('playing');
+  audio.unlock();      // create the Web Audio context from this user gesture (SFX)
   audio.playIntro();
   setTimeout(finishIntro, INTRO_DURATION);
 }

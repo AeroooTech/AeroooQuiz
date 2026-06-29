@@ -34,7 +34,9 @@
     <div class="topbar-right">
       <div class="music-ctl" id="musicCtl">
         <button class="music-btn" id="muteBtn" aria-label="Mute" title="Musik an/aus">🔊</button>
-        <input type="range" id="volSlider" min="0" max="100" value="40" aria-label="Volume" />
+        <input type="range" id="volSlider" min="0" max="100" value="40" aria-label="Music volume" title="Musik" />
+        <span class="sfx-ic" title="Soundeffekte" aria-hidden="true">🔔</span>
+        <input type="range" id="sfxSlider" min="0" max="100" value="60" aria-label="SFX volume" title="Soundeffekte" />
       </div>
       <div class="lang-switch" id="langSwitch" role="group" aria-label="Language">
         <button data-lang="de" class="lang-btn">DE</button>
@@ -116,6 +118,15 @@
               </div>
             </div>
 
+            <div class="field">
+              <span data-i18n="streaksLabel">Streaks</span>
+              <!-- Streak feature on/off (consecutive correct answers). -->
+              <div class="seg-toggle" id="streakToggle" role="radiogroup" aria-label="Streaks">
+                <button type="button" data-streaks="off" data-i18n="off">Off</button>
+                <button type="button" data-streaks="on" data-i18n="on">On</button>
+              </div>
+            </div>
+
             <label class="field">
               <span data-i18n="category">Category</span>
               <select id="categorySelect"></select>
@@ -160,6 +171,12 @@
         <span class="pill ghost-pill" id="qCategory"></span>
         <div class="timer-wrap"><div class="timer-bar" id="timerBar"></div></div>
         <span class="timer-num mono" id="timerNum"></span>
+        <button class="pause-btn hidden" id="pauseBtn" title="Pause" aria-label="Pause">⏸</button>
+      </div>
+
+      <!-- Host pause indicator -->
+      <div class="pause-overlay hidden" id="pauseOverlay">
+        <div class="pause-card"><span class="pause-ic">⏸</span><span data-i18n="paused">Paused</span></div>
       </div>
 
       <div class="card question-card">

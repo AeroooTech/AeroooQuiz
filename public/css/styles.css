@@ -133,11 +133,15 @@ body {
 }
 .brand { font-family: 'Orbitron', sans-serif; font-weight: 700; font-size: 1.05rem; letter-spacing: 1.5px; text-transform: uppercase; }
 .topbar-right { display: flex; align-items: center; gap: 16px; }
-.music-ctl { display: flex; align-items: center; gap: 8px; }
+.music-ctl { display: flex; align-items: center; gap: 7px; }
 .music-btn { background: none; border: none; cursor: pointer; font-size: 1.15rem; line-height: 1; filter: drop-shadow(0 0 6px var(--cyan)); }
 .music-btn.off { filter: none; opacity: 0.55; }
-#volSlider { width: 92px; accent-color: var(--magenta); cursor: pointer; }
-@media (max-width: 600px) { #volSlider { width: 60px; } .brand { font-size: 0.92rem; } }
+.sfx-ic { font-size: 0.95rem; line-height: 1; opacity: 0.85; }
+#volSlider, #sfxSlider { width: 78px; cursor: pointer; }
+#volSlider { accent-color: var(--magenta); }
+#sfxSlider { accent-color: var(--cyan); }
+@media (max-width: 760px) { #volSlider, #sfxSlider { width: 52px; } .brand { font-size: 0.92rem; } }
+@media (max-width: 520px) { .sfx-ic { display: none; } #volSlider, #sfxSlider { width: 42px; } }
 
 .lang-switch { display: flex; border: 1.5px solid var(--line); border-radius: 999px; overflow: hidden; }
 .lang-btn {
@@ -407,6 +411,21 @@ select.enhanced { display: none; }
 .answer-btn .hl-val { font-family: 'DM Mono', monospace; font-weight: 500; font-size: 0.9rem; opacity: 0; transition: opacity 0.25s; white-space: nowrap; color: var(--cyan); }
 .answer-btn.revealed .hl-val, .answer-btn.correct .hl-val, .answer-btn.wrong .hl-val { opacity: 1; }
 
+/* answer-distribution bar + count (after reveal) */
+.answer-btn::after {
+  content: ''; position: absolute; left: 0; bottom: 0; height: 4px; width: 0;
+  background: var(--cyan); opacity: 0; border-radius: 0 0 12px 12px;
+  transition: width 0.5s ease, opacity 0.3s;
+}
+.answer-btn.dist::after { width: var(--pct, 0); opacity: 0.75; }
+.answer-btn.correct.dist::after { background: var(--ok); }
+.ans-count {
+  position: absolute; top: 6px; right: 8px; font-family: 'DM Mono', monospace;
+  font-size: 0.72rem; font-weight: 500; background: rgba(0, 0, 0, 0.4); color: var(--bone);
+  padding: 1px 7px; border-radius: 999px;
+}
+.streak-badge { font-size: 0.78rem; font-weight: 800; color: var(--gold); margin: 0 3px; text-shadow: 0 0 8px rgba(255, 195, 107, 0.6); }
+
 /* free-text / estimate input */
 .text-answer { display: flex; gap: 10px; }
 .text-answer input { flex: 1; padding: 16px; font-size: 1.15rem; font-weight: 600; background: rgba(13, 7, 30, 0.6); border: 1.5px solid var(--line); border-radius: 12px; }
@@ -427,6 +446,26 @@ select.enhanced { display: none; }
 .wager-chip:disabled { opacity: 0.5; cursor: default; }
 
 .reveal-detail { display: none; text-align: center; margin: -6px 0 16px; font-family: 'DM Mono', monospace; font-size: 0.92rem; color: var(--cyan); }
+
+/* Host pause button + indicator */
+.pause-btn {
+  flex: none; width: 38px; height: 38px; border-radius: 10px; cursor: pointer; line-height: 1;
+  background: var(--panel-2); color: var(--text); border: 1.5px solid var(--line); font-size: 1rem;
+  transition: border-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.pause-btn:hover { border-color: var(--magenta); color: var(--magenta); box-shadow: 0 0 12px rgba(255, 78, 205, 0.35); }
+.pause-overlay {
+  position: fixed; inset: 0; z-index: 500; display: grid; place-items: center;
+  background: rgba(10, 5, 25, 0.72); backdrop-filter: blur(3px);
+}
+.pause-card {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  font-family: 'Orbitron', sans-serif; text-transform: uppercase; letter-spacing: 3px;
+  font-size: 1.5rem; color: var(--cyan); text-shadow: 0 0 18px rgba(69, 230, 255, 0.6);
+  animation: pausePulse 1.6s ease-in-out infinite;
+}
+.pause-card .pause-ic { font-size: 3rem; }
+@keyframes pausePulse { 50% { opacity: 0.55; } }
 
 .status { text-align: center; min-height: 1.5em; margin: 18px 0; font-weight: 800; font-size: 1.1rem; font-family: 'Orbitron', sans-serif; letter-spacing: 1px; text-transform: uppercase; }
 .status.good { color: var(--ok); text-shadow: 0 0 12px rgba(75, 227, 155, 0.6); }
