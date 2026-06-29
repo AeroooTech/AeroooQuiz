@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import { matchFreeText, parseNumber } from './questions.js';
 import { buildRound, getBank, counts, addQuestion, updateQuestion, deleteQuestion, TYPES } from './questionStore.js';
 import { CATEGORIES, fetchQuestions } from './trivia.js';
+import { translateBatch, activeProvider } from './translate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -102,25 +103,43 @@ app.post('/admin/api/import', requireAdmin, (req, res) => {
 // external format to addQuestion('multiple', {...}) the same way.
 app.post('/admin/api/import-opentdb', requireAdmin, async (req, res) => {
   try {
+    const translate = !!req.body?.translate;
     const fetched = await fetchQuestions({
       amount: Math.min(Math.max(Number(req.body?.amount) || 10, 1), 50),
       category: Number(req.body?.category) || 0,
       difficulty: ['easy', 'medium', 'hard'].includes(req.body?.difficulty) ? req.body.difficulty : 'any'
     });
+
+    // Normalise to {question, correct, wrong[3], diff}; drop malformed ones.
+    const items = fetched.map((q) => ({
+      question: q.question,
+      correct: q.answers[q.correctIndex],
+      wrong: q.answers.filter((_, i) => i !== q.correctIndex).slice(0, 3),
+      diff: q.difficulty || 'medium'
+    })).filter((it) => it.wrong.length === 3);
+
+    // Optionally translate EN → DE. We flatten every string (5 per question:
+    // prompt + correct + 3 wrong) into one batch, then map the results back.
+    let de = null;
+    if (translate) {
+      const flat = [];
+      items.forEach((it) => flat.push(it.question, it.correct, ...it.wrong));
+      de = await translateBatch(flat, 'DE', 'EN');
+    }
+
     let added = 0;
-    for (const q of fetched) {
-      const correct = q.answers[q.correctIndex];
-      const wrong = q.answers.filter((_, i) => i !== q.correctIndex).slice(0, 3);
-      if (wrong.length < 3) continue;
+    items.forEach((it, idx) => {
+      const b = idx * 5;
       const r = addQuestion('multiple', {
-        cat: 'general', diff: q.difficulty || 'medium',
-        prompt: { de: q.question, en: q.question },
-        correct: { de: correct, en: correct },
-        wrong: { de: [...wrong], en: [...wrong] }
+        cat: 'general', diff: it.diff,
+        prompt:  { de: translate ? de[b] : it.question,     en: it.question },
+        correct: { de: translate ? de[b + 1] : it.correct,  en: it.correct },
+        wrong:   { de: translate ? de.slice(b + 2, b + 5) : [...it.wrong], en: [...it.wrong] }
       });
       if (!r.error) added += 1;
-    }
-    res.json({ added, counts: counts() });
+    });
+
+    res.json({ added, translated: translate, provider: translate ? activeProvider() : null, counts: counts() });
   } catch (err) {
     const code = err.message === 'NO_RESULTS' ? 'Keine Fragen für diese Auswahl' : 'Laden von OpenTDB fehlgeschlagen';
     res.status(502).json({ error: code });

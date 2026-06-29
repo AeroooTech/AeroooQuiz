@@ -14,6 +14,9 @@ services:
       - PORT=3000
       # Admin panel password (quiz.aerooo.net/admin). CHANGE THIS!
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme}
+      # Optional: DeepL key for best-quality EN→DE import translation.
+      # Leave empty to use the free MyMemory fallback. Free keys end in ":fx".
+      - DEEPL_API_KEY=${DEEPL_API_KEY:-}
     volumes:
       - quizdata:/app/server/data   # persists admin-edited questions
     ports:

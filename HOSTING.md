@@ -57,6 +57,11 @@ Dort kannst du:
 
 > ⚠️ Setze unbedingt ein starkes `ADMIN_PASSWORD`. Ohne gesetzte Variable nutzt der Server das unsichere Default „admin" und warnt im Log.
 
+### 🌍 Fragen automatisch übersetzen (optional)
+Beim Import aus der öffentlichen Open Trivia DB kann der Admin die englischen Fragen **automatisch ins Deutsche übersetzen** lassen (Häkchen im Import-Bereich).
+- **Ohne Einrichtung:** nutzt automatisch das kostenlose **MyMemory** (gut, leicht limitiert).
+- **Beste Qualität:** hinterlege die Stack-Variable `DEEPL_API_KEY` mit einem kostenlosen [DeepL-API-Key](https://www.deepl.com/pro-api) (Free-Keys enden auf `:fx`).
+
 ---
 
 ## Schritt 3 – Testen

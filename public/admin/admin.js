@@ -301,14 +301,19 @@ function setupImport() {
 
 $('#otdbBtn').addEventListener('click', async () => {
   const out = $('#otdbResult');
-  out.textContent = 'Lädt…'; out.className = 'import-result';
+  const doTranslate = $('#otdbTranslate').checked;
+  out.textContent = doTranslate ? 'Lädt & übersetzt… (kann etwas dauern)' : 'Lädt…';
+  out.className = 'import-result';
   try {
     const res = await api('/import-opentdb', { method: 'POST', body: JSON.stringify({
-      amount: $('#otdbAmount').value, category: $('#otdbCategory').value, difficulty: $('#otdbDiff').value
+      amount: $('#otdbAmount').value, category: $('#otdbCategory').value,
+      difficulty: $('#otdbDiff').value, translate: doTranslate
     }) });
     const data = await res.json();
     if (!res.ok) { out.textContent = data.error || 'Fehler'; out.classList.add('err'); return; }
-    out.textContent = `✓ ${data.added} Fragen importiert.`; out.classList.add('ok');
+    const prov = data.provider === 'deepl' ? ' (DeepL)' : data.provider === 'mymemory' ? ' (MyMemory)' : '';
+    out.textContent = `✓ ${data.added} Fragen importiert${data.translated ? ' & übersetzt' + prov : ''}.`;
+    out.classList.add('ok');
     await loadQuestions();
   } catch { out.textContent = 'Netzwerkfehler'; out.classList.add('err'); }
 });
