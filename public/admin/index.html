@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AeroooQuiz · Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Outfit:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="admin.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛠️</text></svg>" />
+</head>
+<body>
+  <div class="scanlines" aria-hidden="true"></div>
+
+  <!-- LOGIN -->
+  <section class="screen active" id="screen-login">
+    <form class="login-card" id="loginForm">
+      <!-- Brand name for the admin app — keep in sync with public/js/brand.js -->
+      <div class="logo">AEROOO<span>QUIZ</span></div>
+      <p class="sub">エアロー · ADMIN</p>
+      <label class="field">
+        <span>Passwort</span>
+        <input type="password" id="pwInput" autocomplete="current-password" autofocus />
+      </label>
+      <button class="btn neon" type="submit">Einloggen</button>
+      <p class="err" id="loginErr"></p>
+    </form>
+  </section>
+
+  <!-- DASHBOARD -->
+  <section class="screen" id="screen-admin">
+    <header class="topbar">
+      <div class="logo small">AEROOO<span>QUIZ</span> · ADMIN</div>
+      <button class="btn ghost" id="logoutBtn">Logout</button>
+    </header>
+
+    <main class="dash">
+      <!-- Live games -->
+      <section class="panel">
+        <h2>🎮 Live-Spiele <span class="dot-live" id="liveDot"></span></h2>
+        <div class="rooms" id="roomsList"><p class="muted">Lade…</p></div>
+      </section>
+
+      <!-- Questions -->
+      <section class="panel">
+        <div class="panel-head">
+          <h2>📝 Fragen verwalten</h2>
+          <button class="btn neon" id="addBtn">+ Neue Frage</button>
+        </div>
+        <div class="tabs" id="typeTabs"></div>
+        <div class="q-list" id="questionList"></div>
+      </section>
+    </main>
+  </section>
+
+  <!-- EDITOR MODAL -->
+  <div class="modal hidden" id="editorModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="editorTitle">Neue Frage</h3>
+        <button class="x" id="closeEditor" aria-label="Schließen">×</button>
+      </div>
+      <form id="editorForm">
+        <div class="row2">
+          <label class="field"><span>Kategorie</span><select id="catField"></select></label>
+          <label class="field"><span>Schwierigkeit</span><select id="diffField"></select></label>
+        </div>
+        <div id="dynamicFields"></div>
+        <p class="err" id="editorErr"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn ghost" id="cancelEditor">Abbrechen</button>
+          <button type="submit" class="btn neon" id="saveBtn">Speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+# Quiz Arena + Cloudflare Tunnel — deploy as ONE Portainer stack.
+# No port forwarding needed: cloudflared dials out to Cloudflare and serves
+# quiz.aerooo.net over HTTPS. Set TUNNEL_TOKEN in the stack's environment.
+#
+# In the Cloudflare Zero Trust tunnel, add a Public Hostname:
+#   quiz.aerooo.net  ->  Service: HTTP  ->  URL: quizgame:3000
+services:
+  quizgame:
+    build: .
+    image: quizgame:latest
+    container_name: quizgame
+    restart: unless-stopped
+    environment:
+      - PORT=3000
+      # Admin panel password (quiz.aerooo.net/admin). CHANGE THIS!
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme}
+    volumes:
+      - quizdata:/app/server/data   # persists admin-edited questions
+    expose:
+      - "3000"            # internal only; the tunnel reaches it over quiznet
+    networks: [quiznet]
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: quizgame-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    depends_on: [quizgame]
+    networks: [quiznet]
+
+volumes:
+  quizdata:
+
+networks:
+  quiznet:
+    driver: bridge

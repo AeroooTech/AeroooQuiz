@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AeroooQuiz</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Outfit:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌆</text></svg>" />
+</head>
+<body>
+  <div class="grid-floor" aria-hidden="true"></div>
+
+  <!-- INTRO  (animation + music handled in main.js: startIntroSequence / finishIntro) -->
+  <div id="intro" class="intro">
+    <div class="retro-sun" aria-hidden="true"></div>
+    <div class="intro-inner">
+      <p class="intro-kana">エアロー・クイズ</p>
+      <!-- logo text is injected from BRAND (brand.js) by renderBrand() -->
+      <h1 class="intro-logo" id="introLogo"></h1>
+      <p class="intro-tag" data-i18n="tagline">Online Multiplayer Quiz</p>
+      <button class="btn neon big" id="enterBtn">▶ <span data-i18n="enter">Enter</span></button>
+      <p class="intro-hint" id="introHint" data-i18n="soundHint">🔊 with sound</p>
+    </div>
+  </div>
+
+  <audio id="introAudio" src="audio/intro.mp3" preload="auto"></audio>
+  <audio id="bgAudio" src="audio/background.mp3" preload="auto" loop></audio>
+
+  <header class="topbar">
+    <div class="brand">🌆 <span data-i18n="appTitle">AeroooQuiz</span></div>
+    <div class="topbar-right">
+      <div class="music-ctl" id="musicCtl">
+        <button class="music-btn" id="muteBtn" aria-label="Mute" title="Musik an/aus">🔊</button>
+        <input type="range" id="volSlider" min="0" max="100" value="40" aria-label="Volume" />
+      </div>
+      <div class="lang-switch" id="langSwitch" role="group" aria-label="Language">
+        <button data-lang="de" class="lang-btn">DE</button>
+        <button data-lang="en" class="lang-btn">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="app">
+    <!-- HOME -->
+    <section class="screen active" id="screen-home">
+      <div class="billboard">
+        <div class="bulbs" aria-hidden="true"></div>
+        <div class="billboard-body">
+          <p class="eyebrow" data-i18n="tagline">Online Multiplayer Quiz</p>
+          <h1 class="wordmark"><span data-i18n="appTitle">AeroooQuiz</span></h1>
+
+          <label class="field">
+            <span data-i18n="yourName">Your name</span>
+            <input type="text" id="nameInput" maxlength="20" data-i18n-ph="namePlaceholder" />
+          </label>
+
+          <div class="field">
+            <span data-i18n="chooseIcon">Choose your avatar</span>
+            <!-- Avatar grid is rendered from PLAYER_ICONS by renderIconPicker() (main.js) -->
+            <div class="icon-grid" id="iconGrid" role="radiogroup" aria-label="Avatar"></div>
+          </div>
+
+          <button class="btn primary big" id="createBtn" data-i18n="createRoom">Create room</button>
+
+          <div class="divider"><span data-i18n="orJoin">or join a room</span></div>
+
+          <div class="join-row">
+            <input type="text" id="codeInput" maxlength="4" class="code-input" data-i18n-ph="codePlaceholder" />
+            <button class="btn ink" id="joinBtn" data-i18n="joinRoom">Join</button>
+          </div>
+          <p class="error" id="homeError" role="alert"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- LOBBY -->
+    <section class="screen" id="screen-lobby">
+      <div class="lobby-grid">
+        <div class="card">
+          <p class="eyebrow" data-i18n="lobby">Lobby</p>
+          <p class="muted" data-i18n="inviteHint">Share this code with your friends:</p>
+
+          <div class="board" aria-label="Room code">
+            <div class="flaps" id="roomCodeDisplay">----</div>
+          </div>
+          <button class="btn ink small copy-row" id="copyBtn" data-i18n="copy">Copy</button>
+
+          <h3 class="section-title"><span data-i18n="players">Players</span> · <span id="playerCount" class="mono">0</span></h3>
+          <ul class="player-list" id="playerList"></ul>
+
+          <div id="teamPicker" class="team-picker hidden">
+            <h3 class="section-title" data-i18n="chooseTeam">Choose your team</h3>
+            <div class="team-buttons" id="teamButtons"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <p class="eyebrow" data-i18n="settings">Settings</p>
+          <fieldset id="settingsFieldset">
+            <div class="field">
+              <span data-i18n="mode">Game mode</span>
+              <!-- Mode cards are rendered from MODE_META/MODES by renderModeCards() (main.js) -->
+              <div class="mode-cards" id="modeCards" role="radiogroup" aria-label="Game mode"></div>
+            </div>
+            <p class="mode-desc" id="modeDesc"></p>
+
+            <div class="field">
+              <span data-i18n="playStyle">Play style</span>
+              <!-- Team vs. FFA toggle (orthogonal to the mode). -->
+              <div class="seg-toggle" id="teamToggle" role="radiogroup" aria-label="Play style">
+                <button type="button" data-team-mode="ffa" data-i18n="ffa">Free-for-all</button>
+                <button type="button" data-team-mode="teams" data-i18n="teamsToggle">Teams</button>
+              </div>
+            </div>
+
+            <label class="field">
+              <span data-i18n="category">Category</span>
+              <select id="categorySelect"></select>
+            </label>
+
+            <label class="field">
+              <span data-i18n="difficulty">Difficulty</span>
+              <select id="difficultySelect"></select>
+            </label>
+
+            <div class="field-row">
+              <label class="field">
+                <span data-i18n="questionCount">Number of questions</span>
+                <input type="number" id="amountInput" min="3" max="50" value="10" />
+              </label>
+              <label class="field">
+                <span><span data-i18n="timePerQuestion">Time per question</span> (<span data-i18n="seconds">sec</span>)</span>
+                <input type="number" id="timeInput" min="5" max="60" value="20" />
+              </label>
+            </div>
+          </fieldset>
+
+          <button class="btn primary big" id="startBtn" data-i18n="startGame">Start game</button>
+          <p class="muted center wait" id="waitMsg" data-i18n="waitingForHost">Waiting for the host…</p>
+          <button class="btn ghost" id="leaveBtn" data-i18n="leave">Leave</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- LOADING -->
+    <section class="screen" id="screen-loading">
+      <div class="card center loading-card">
+        <div class="spinner" aria-hidden="true"></div>
+        <p class="mono" data-i18n="loading">Loading questions…</p>
+      </div>
+    </section>
+
+    <!-- GAME -->
+    <section class="screen" id="screen-game">
+      <div class="game-head">
+        <span class="pill" id="qProgress"></span>
+        <span class="pill ghost-pill" id="qCategory"></span>
+        <div class="timer-wrap"><div class="timer-bar" id="timerBar"></div></div>
+        <span class="timer-num mono" id="timerNum"></span>
+      </div>
+
+      <div class="card question-card">
+        <h2 id="questionText"></h2>
+      </div>
+
+      <div class="wager-bar hidden" id="wagerBar"></div>
+
+      <div class="answers" id="answersGrid"></div>
+
+      <p class="status" id="gameStatus"></p>
+      <p class="reveal-detail" id="revealDetail"></p>
+
+      <div class="live-scores" id="liveScores"></div>
+    </section>
+
+    <!-- GAME OVER -->
+    <section class="screen" id="screen-over">
+      <div class="card center over-card">
+        <h1 class="wordmark gameover" data-i18n="gameOver">Game over!</h1>
+        <div id="winnerBanner" class="winner-banner"></div>
+        <h3 class="section-title" data-i18n="leaderboard">Leaderboard</h3>
+        <ol class="leaderboard" id="leaderboardList"></ol>
+        <div class="row">
+          <button class="btn primary" id="playAgainBtn" data-i18n="playAgain">Play again</button>
+          <button class="btn ghost" id="toLobbyBtn" data-i18n="backToLobby">Back to lobby</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

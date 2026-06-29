@@ -1,0 +1,26 @@
+{
+  "name": "quizgame",
+  "version": "1.0.0",
+  "description": "Online multiplayer browser quiz game with lobbies, multiple game modes and DE/EN language switching.",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "quiz",
+    "multiplayer",
+    "socket.io",
+    "game",
+    "trivia"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}

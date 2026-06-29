@@ -1,0 +1,29 @@
+# Deploy as a Portainer Stack (or `docker compose up -d`).
+# The app serves HTTP + WebSockets on port 3000; put a reverse proxy
+# (Nginx Proxy Manager / Traefik / Cloudflare Tunnel) in front for
+# quiz.aerooo.net + HTTPS.
+services:
+  quizgame:
+    build: .
+    image: quizgame:latest
+    container_name: quizgame
+    restart: unless-stopped
+    environment:
+      - PORT=3000
+      # Admin panel password (quiz.aerooo.net/admin). CHANGE THIS!
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme}
+    volumes:
+      - quizdata:/app/server/data   # persists admin-edited questions
+    ports:
+      - "3000:3000"
+    # If your reverse proxy runs in Docker, attaching to its network and
+    # talking to "quizgame:3000" is cleaner than publishing the port.
+    # networks:
+    #   - proxy
+
+volumes:
+  quizdata:
+
+# networks:
+#   proxy:
+#     external: true
