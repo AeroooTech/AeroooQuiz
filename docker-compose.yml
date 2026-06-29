@@ -5,7 +5,9 @@
 services:
   quizgame:
     build: .
-    image: quizgame:latest
+    # No `image:` tag on purpose — it is built locally from this repo. Naming it
+    # would make Portainer's "Pull and redeploy" try to pull it from a registry
+    # (which fails with "pull access denied").
     container_name: quizgame
     restart: unless-stopped
     environment:
