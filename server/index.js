@@ -161,13 +161,29 @@ const MODE_CONFIG = {
   text:      { type: 'freetext',    score: 'speed',   time: 30 },
   estimate:  { type: 'estimate',    score: 'closest', time: 30 },
   trueblitz: { type: 'truefalse',   score: 'speed',   time: 10 },
-  wager:     { type: 'multiple',    score: 'wager',   time: 20, wager: true, startScore: 1000 }
+  wager:     { type: 'multiple',    score: 'wager',   time: 20, wager: true, startScore: 1000, shop: true }
 };
 const MODES = Object.keys(MODE_CONFIG);
 
 // Wager mode: fraction of the stake LOST on a wrong answer.
 // 1 = lose the whole stake, 0.5 = lose half, 0 = lose nothing. Change freely.
 const WAGER_LOSS_FACTOR = 1;
+
+// ---------------------------------------------------------------------------
+// Shop (wager mode only). A shop phase opens after every SHOP_EVERY questions
+// (but not at the very end). Add/space items here — `effect` drives behaviour.
+// ---------------------------------------------------------------------------
+const SHOP_EVERY = 3;       // open the shop after every 3 questions
+const SHOP_DURATION = 22;   // seconds the shop stays open
+const SHOP_ITEMS = [
+  { id: 'fifty', price: 300, effect: 'fifty',
+    name: { de: '50/50-Joker', en: '50/50' },
+    desc: { de: 'Entfernt zwei falsche Antworten bei einer Frage.', en: 'Removes two wrong answers on a question.' } },
+  { id: 'skip', price: 250, effect: 'skip',
+    name: { de: 'Frage überspringen', en: 'Skip question' },
+    desc: { de: 'Überspringe eine Frage ohne Punktverlust.', en: 'Skip a question with no point loss.' } }
+];
+const shopItem = (id) => SHOP_ITEMS.find((i) => i.id === id);
 
 // Teams a player can belong to. Add more ids here (and a matching colour in the
 // client CSS / TEAM_LABEL) to support more than two teams.
@@ -201,7 +217,7 @@ function createRoom(hostId) {
     settings: { ...DEFAULT_SETTINGS },
     players: new Map(),
     questions: [], currentIndex: -1, questionStartedAt: 0,
-    timer: null, revealTimer: null,
+    timer: null, revealTimer: null, shopTimer: null,
     paused: false, remainingMs: 0
   };
   rooms.set(code, room);
@@ -214,14 +230,15 @@ function newPlayer(id, name, team, icon) {
   return {
     id, name, icon, score: 0, alive: true, team,
     answer: null, answerText: '', answered: false, answerTime: 0,
-    wager: 0, lastGain: 0, lastCorrect: false, streak: 0, connected: true
+    wager: 0, lastGain: 0, lastCorrect: false, streak: 0,
+    items: [], skipped: false, connected: true
   };
 }
 
 function publicPlayers(room) {
   return [...room.players.values()].map((p) => ({
     id: p.id, name: p.name, icon: p.icon, score: p.score, alive: p.alive, team: p.team,
-    streak: p.streak, connected: p.connected, isHost: p.id === room.hostId, hasAnswered: p.answered
+    streak: p.streak, items: p.items, connected: p.connected, isHost: p.id === room.hostId, hasAnswered: p.answered
   }));
 }
 
@@ -261,6 +278,7 @@ function adminRoomSummaries() {
 function clearRoomTimers(room) {
   if (room.timer) { clearTimeout(room.timer); room.timer = null; }
   if (room.revealTimer) { clearTimeout(room.revealTimer); room.revealTimer = null; }
+  if (room.shopTimer) { clearTimeout(room.shopTimer); room.shopTimer = null; }
 }
 
 function startGame(room) {
@@ -271,6 +289,7 @@ function startGame(room) {
     p.score = cfg.startScore || 0;
     p.alive = true; p.answer = null; p.answerText = ''; p.answered = false;
     p.answerTime = 0; p.wager = 0; p.lastGain = 0; p.lastCorrect = false; p.streak = 0;
+    p.items = []; p.skipped = false;
   }
 
   room.questions = buildRound(cfg.type, {
@@ -306,7 +325,7 @@ function nextQuestion(room) {
   const q = room.questions[room.currentIndex];
   for (const p of room.players.values()) {
     p.answer = null; p.answerText = ''; p.answered = false; p.answerTime = 0;
-    p.wager = 0; p.lastGain = 0; p.lastCorrect = false;
+    p.wager = 0; p.lastGain = 0; p.lastCorrect = false; p.skipped = false;
   }
 
   room.state = 'question';
@@ -352,6 +371,7 @@ function revealAnswer(room) {
   } else {
     for (const p of players) {
       if (cfg.elim && !p.alive) continue;
+      if (p.skipped) { p.lastGain = 0; p.lastCorrect = false; continue; } // skip item: neutral, no wager loss
       const correct = q.type === 'freetext'
         ? matchFreeText(p.answerText || '', q.accept)
         : (p.answered && p.answer === q.correctIndex);
@@ -376,9 +396,11 @@ function revealAnswer(room) {
   }
 
   // Streaks: increment on a correct answer, reset on a miss. Tracked always;
-  // shown/sounded on the client only when settings.streaks is on.
+  // shown/sounded on the client only when settings.streaks is on. A skipped
+  // question leaves the streak untouched.
   for (const p of players) {
     if (cfg.elim && !p.alive) continue;
+    if (p.skipped) continue;
     p.streak = p.lastCorrect ? (p.streak || 0) + 1 : 0;
   }
 
@@ -409,7 +431,27 @@ function revealAnswer(room) {
     }))
   });
 
-  room.revealTimer = setTimeout(() => nextQuestion(room), REVEAL_MS);
+  room.revealTimer = setTimeout(() => afterReveal(room), REVEAL_MS);
+}
+
+// After a reveal: open the shop on a shop boundary (wager mode), else continue.
+function afterReveal(room) {
+  const cfg = MODE_CONFIG[room.settings.mode];
+  const done = room.currentIndex + 1;                 // questions completed
+  const moreLeft = done < room.questions.length;
+  if (cfg.shop && moreLeft && done % SHOP_EVERY === 0) openShop(room);
+  else nextQuestion(room);
+}
+
+function openShop(room) {
+  clearRoomTimers(room);
+  room.state = 'shop';
+  io.to(room.code).emit('shopOpen', {
+    items: SHOP_ITEMS,
+    time: SHOP_DURATION,
+    players: publicPlayers(room)
+  });
+  room.shopTimer = setTimeout(() => nextQuestion(room), SHOP_DURATION * 1000);
 }
 
 function maybeAllAnswered(room) {
@@ -584,6 +626,54 @@ io.on('connection', (socket) => {
 
     io.to(room.code).emit('playerAnswered', { id: socket.id, players: publicPlayers(room) });
     maybeAllAnswered(room);
+  });
+
+  // --- Shop ----------------------------------------------------------------
+  socket.on('buyItem', ({ itemId }) => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room || room.state !== 'shop') return;
+    const player = room.players.get(socket.id);
+    const item = shopItem(itemId);
+    if (!player || !item || player.score < item.price) return;
+    player.score -= item.price;
+    player.items.push(item.id);
+    io.to(room.code).emit('shopUpdate', { players: publicPlayers(room) });
+  });
+
+  // Host closes the shop early.
+  socket.on('closeShop', () => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room || room.hostId !== socket.id || room.state !== 'shop') return;
+    nextQuestion(room);
+  });
+
+  // Use a single-use power-up during a question.
+  socket.on('useItem', ({ itemId }) => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room || room.state !== 'question') return;
+    const player = room.players.get(socket.id);
+    if (!player) return;
+    const idx = player.items.indexOf(itemId);
+    if (idx < 0) return;
+    const q = room.questions[room.currentIndex];
+
+    if (itemId === 'fifty') {
+      if (q.type !== 'multiple' || player.answered) return;
+      // Remove two random WRONG options for this player (keep correct + 1 wrong).
+      const wrong = q.options.map((_, i) => i).filter((i) => i !== q.correctIndex);
+      for (let i = wrong.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [wrong[i], wrong[j]] = [wrong[j], wrong[i]]; }
+      const remove = wrong.slice(0, 2);
+      player.items.splice(idx, 1);
+      socket.emit('itemUsed', { itemId, remove });               // only the buyer
+      io.to(room.code).emit('playerItems', { players: publicPlayers(room) });
+    } else if (itemId === 'skip') {
+      if (player.answered) return;
+      player.items.splice(idx, 1);
+      player.answered = true; player.skipped = true; player.answer = null;
+      socket.emit('itemUsed', { itemId });
+      io.to(room.code).emit('playerAnswered', { id: socket.id, players: publicPlayers(room) });
+      maybeAllAnswered(room);
+    }
   });
 
   socket.on('leaveRoom', () => handleLeave(socket));

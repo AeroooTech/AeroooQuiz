@@ -190,12 +190,29 @@
 
       <div class="wager-bar hidden" id="wagerBar"></div>
 
+      <!-- Owned power-ups, usable during the question -->
+      <div class="item-bar hidden" id="itemBar"></div>
+
       <div class="answers" id="answersGrid"></div>
 
       <p class="status" id="gameStatus"></p>
       <p class="reveal-detail" id="revealDetail"></p>
 
       <div class="live-scores" id="liveScores"></div>
+    </section>
+
+    <!-- SHOP (wager mode) -->
+    <section class="screen" id="screen-shop">
+      <div class="card center shop-card">
+        <p class="eyebrow">🛒 <span data-i18n="shopTitle">Shop</span></p>
+        <p class="muted" data-i18n="shopHint">Buy power-ups for the next questions</p>
+        <p class="shop-points"><span data-i18n="yourPoints">Your points</span>: <span id="shopPoints" class="mono">0</span></p>
+        <div class="shop-items" id="shopItems"></div>
+        <div class="shop-foot">
+          <span class="timer-num mono" id="shopTimer"></span>
+          <button class="btn ghost hidden" id="shopContinueBtn" data-i18n="shopContinue">Continue</button>
+        </div>
+      </div>
     </section>
 
     <!-- GAME OVER -->

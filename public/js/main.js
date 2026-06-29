@@ -86,7 +86,8 @@ const state = {
   reveal: null,
   timerInterval: null,
   paused: false,
-  myStreak: 0
+  myStreak: 0,
+  shopCatalog: null
 };
 
 // Pick the field of a {de,en} object for the current UI language.
@@ -559,9 +560,12 @@ socket.on('question', (data) => {
   $('#pauseBtn').textContent = '⏸';
   $('#pauseBtn').classList.toggle('hidden', !isHost()); // only the host sees Pause
 
+  clearInterval(shopInterval); // in case we came straight from the shop
+
   showScreen('game');
   renderQuestionStatics();
   renderInputs();
+  renderItemBar();              // show owned power-ups
   renderLiveScores(data.players);
   startTimer(data.time);
 
@@ -595,6 +599,99 @@ socket.on('resumed', (data) => {
   $('#pauseBtn').textContent = '⏸';
   audio.sfx('resume');
   resumeTimer(data.time); // continue the bar from where it was, over the remaining time
+});
+
+// ---------------------------------------------------------------------------
+// Shop + power-ups (wager mode)
+// ---------------------------------------------------------------------------
+const ITEM_ICON = { fifty: '✂️', skip: '⏭️' };
+let shopInterval = 0;
+
+socket.on('shopOpen', (data) => {
+  state.shopCatalog = data.items;   // [{id, price, effect, name{de,en}, desc{de,en}}]
+  state.players = data.players;
+  showScreen('shop');
+  audio.sfx('shop');
+  $('#shopContinueBtn').classList.toggle('hidden', !isHost());
+  renderShop();
+  clearInterval(shopInterval);
+  let remaining = data.time;
+  $('#shopTimer').textContent = remaining;
+  shopInterval = setInterval(() => {
+    remaining -= 1;
+    $('#shopTimer').textContent = Math.max(0, remaining);
+    if (remaining <= 0) clearInterval(shopInterval);
+  }, 1000);
+});
+
+socket.on('shopUpdate', (data) => { state.players = data.players; renderShop(); });
+
+function renderShop() {
+  const me = state.players.find((p) => p.id === state.you);
+  const pts = me ? me.score : 0;
+  $('#shopPoints').textContent = pts;
+  $('#shopItems').innerHTML = (state.shopCatalog || []).map((item) => {
+    const ownedCount = (me?.items || []).filter((x) => x === item.id).length;
+    const afford = pts >= item.price;
+    return `<div class="shop-item">
+      <div class="shop-ic">${ITEM_ICON[item.id] || '🎁'}</div>
+      <div class="shop-info">
+        <div class="shop-name">${escapeHtml(L(item.name))}${ownedCount ? ` <span class="owned-badge">×${ownedCount}</span>` : ''}</div>
+        <div class="shop-desc">${escapeHtml(L(item.desc))}</div>
+      </div>
+      <button class="btn shop-buy ${afford ? 'primary' : ''}" data-item="${item.id}" ${afford ? '' : 'disabled'}>
+        <span class="mono">${item.price}</span> · ${afford ? t('buy') : t('notEnough')}
+      </button>
+    </div>`;
+  }).join('');
+}
+
+$('#shopItems').addEventListener('click', (e) => {
+  const btn = e.target.closest('.shop-buy');
+  if (!btn || btn.disabled) return;
+  socket.emit('buyItem', { itemId: btn.dataset.item });
+  audio.sfx('purchase');
+});
+$('#shopContinueBtn').addEventListener('click', () => { if (isHost()) socket.emit('closeShop'); });
+
+// --- Power-up bar during a question -----------------------------------------
+function renderItemBar() {
+  const bar = $('#itemBar');
+  const me = state.players.find((p) => p.id === state.you);
+  const items = me?.items || [];
+  if (!items.length || state.answered) { bar.classList.add('hidden'); bar.innerHTML = ''; return; }
+  const counts = {};
+  items.forEach((id) => { counts[id] = (counts[id] || 0) + 1; });
+  const cat = state.shopCatalog || [];
+  bar.classList.remove('hidden');
+  bar.innerHTML = Object.entries(counts).map(([id, n]) => {
+    const label = cat.find((i) => i.id === id)?.name;
+    return `<button class="item-chip" data-item="${id}" title="${escapeHtml(label ? L(label) : id)}">
+      ${ITEM_ICON[id] || '🎁'}${n > 1 ? `<span class="item-n">×${n}</span>` : ''}</button>`;
+  }).join('');
+}
+
+$('#itemBar').addEventListener('click', (e) => {
+  const btn = e.target.closest('.item-chip');
+  if (!btn || state.answered) return;
+  socket.emit('useItem', { itemId: btn.dataset.item });
+});
+
+socket.on('playerItems', (data) => { state.players = data.players; renderItemBar(); renderLiveScores(data.players); });
+
+socket.on('itemUsed', (data) => {
+  audio.sfx('purchase');
+  if (data.itemId === 'fifty' && Array.isArray(data.remove)) {
+    data.remove.forEach((i) => {
+      const b = document.querySelector(`.answer-btn[data-i="${i}"]`);
+      if (b) { b.classList.add('removed'); b.disabled = true; }
+    });
+  } else if (data.itemId === 'skip') {
+    state.answered = true;
+    $$('.answer-btn').forEach((b) => (b.disabled = true));
+    setStatus('skipped', 'dim');
+  }
+  renderItemBar();
 });
 
 function renderQuestionStatics() {
@@ -685,6 +782,7 @@ function submitChoice(index) {
     if (i === index) b.classList.add('selected');
   });
   $('#wagerBar').querySelectorAll('.wager-chip').forEach((c) => (c.disabled = true));
+  renderItemBar(); // hide power-ups once locked in
   setStatus('locked', 'dim');
   socket.emit('submitAnswer', { index, wager: state.myWager });
 }
@@ -698,6 +796,7 @@ function submitFree(payload) {
   const form = $('#textForm');
   form.querySelectorAll('input, button').forEach((el) => (el.disabled = true));
   form.classList.add('locked');
+  renderItemBar();
   setStatus('locked', 'dim');
   socket.emit('submitAnswer', payload);
 }
