@@ -5,8 +5,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { matchFreeText, parseNumber } from './questions.js';
-import { buildRound, getBank, counts, addQuestion, updateQuestion, deleteQuestion } from './questionStore.js';
-import { CATEGORIES } from './trivia.js';
+import { buildRound, getBank, counts, addQuestion, updateQuestion, deleteQuestion, TYPES } from './questionStore.js';
+import { CATEGORIES, fetchQuestions } from './trivia.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -78,6 +78,53 @@ app.delete('/admin/api/questions/:id', requireAdmin, (req, res) => {
 });
 app.get('/admin/api/rooms', requireAdmin, (req, res) => {
   res.json({ rooms: adminRoomSummaries() });
+});
+
+// Bulk import: an array of questions of one type. Each is validated; valid ones
+// are added, invalid ones returned with their reason. Body: { type, questions:[] }
+app.post('/admin/api/import', requireAdmin, (req, res) => {
+  const { type, questions } = req.body || {};
+  if (!TYPES.includes(type)) return res.status(400).json({ error: 'Unbekannter Fragetyp' });
+  if (!Array.isArray(questions)) return res.status(400).json({ error: 'questions muss ein Array sein' });
+  let added = 0;
+  const errors = [];
+  questions.forEach((q, i) => {
+    const r = addQuestion(type, q);
+    if (r.error) errors.push({ index: i, error: r.error });
+    else added += 1;
+  });
+  res.json({ added, failed: errors.length, errors: errors.slice(0, 20), counts: counts() });
+});
+
+// Import from the public Open Trivia DB (https://opentdb.com) as multiple-choice
+// questions. English-only, so de == en. Body: { amount, category, difficulty }
+// To add ANOTHER public source later, add a sibling endpoint that maps the
+// external format to addQuestion('multiple', {...}) the same way.
+app.post('/admin/api/import-opentdb', requireAdmin, async (req, res) => {
+  try {
+    const fetched = await fetchQuestions({
+      amount: Math.min(Math.max(Number(req.body?.amount) || 10, 1), 50),
+      category: Number(req.body?.category) || 0,
+      difficulty: ['easy', 'medium', 'hard'].includes(req.body?.difficulty) ? req.body.difficulty : 'any'
+    });
+    let added = 0;
+    for (const q of fetched) {
+      const correct = q.answers[q.correctIndex];
+      const wrong = q.answers.filter((_, i) => i !== q.correctIndex).slice(0, 3);
+      if (wrong.length < 3) continue;
+      const r = addQuestion('multiple', {
+        cat: 'general', diff: q.difficulty || 'medium',
+        prompt: { de: q.question, en: q.question },
+        correct: { de: correct, en: correct },
+        wrong: { de: [...wrong], en: [...wrong] }
+      });
+      if (!r.error) added += 1;
+    }
+    res.json({ added, counts: counts() });
+  } catch (err) {
+    const code = err.message === 'NO_RESULTS' ? 'Keine Fragen für diese Auswahl' : 'Laden von OpenTDB fehlgeschlagen';
+    res.status(502).json({ error: code });
+  }
 });
 
 // ---------------------------------------------------------------------------

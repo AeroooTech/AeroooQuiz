@@ -42,6 +42,33 @@
         <div class="rooms" id="roomsList"><p class="muted">Lade…</p></div>
       </section>
 
+      <!-- Import -->
+      <section class="panel">
+        <h2>📥 Importieren</h2>
+        <div class="import-grid">
+          <div class="import-box">
+            <h3>Öffentliche Datenbank (Open Trivia DB)</h3>
+            <p class="muted small">Lädt Multiple-Choice-Fragen (englisch) und fügt sie hinzu.</p>
+            <div class="row3">
+              <label class="field"><span>Anzahl</span><input type="number" id="otdbAmount" min="1" max="50" value="10" /></label>
+              <label class="field"><span>Kategorie</span><select id="otdbCategory"></select></label>
+              <label class="field"><span>Schwierigkeit</span><select id="otdbDiff"></select></label>
+            </div>
+            <button class="btn neon" id="otdbBtn">Laden &amp; importieren</button>
+            <p class="import-result" id="otdbResult"></p>
+          </div>
+
+          <div class="import-box">
+            <h3>Bulk-Import (JSON)</h3>
+            <p class="muted small">Array von Fragen eines Typs einfügen. <a href="#" id="jsonExampleLink">Beispiel einfügen</a>.</p>
+            <label class="field"><span>Typ</span><select id="importType"></select></label>
+            <textarea id="importJson" rows="6" placeholder='[ { "cat": "general", "diff": "easy", "prompt": {"de":"…","en":"…"}, ... } ]'></textarea>
+            <button class="btn neon" id="importBtn">Importieren</button>
+            <p class="import-result" id="importResult"></p>
+          </div>
+        </div>
+      </section>
+
       <!-- Questions -->
       <section class="panel">
         <div class="panel-head">

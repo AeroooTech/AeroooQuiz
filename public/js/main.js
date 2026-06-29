@@ -34,16 +34,27 @@ const MODE_TIME = { classic: 20, speed: 20, survival: 20, hilo: 15, text: 30, es
 const WAGER_OPTIONS = [100, 250, 500];
 
 // === Player avatars ========================================================
-// To ADD AN ICON: add an { id, emoji } entry. The id is stored on the player
-// (player.icon) and synced to everyone; the emoji is shown next to the name.
+// City Pop avatar images in public/avatars/. To ADD AN ICON: drop a PNG in that
+// folder and add an { id, img } entry — it appears in the picker automatically.
 const PLAYER_ICONS = [
-  { id: 'palm', emoji: '🌴' }, { id: 'city', emoji: '🌆' }, { id: 'shades', emoji: '🕶️' },
-  { id: 'synth', emoji: '🎹' }, { id: 'car', emoji: '🚗' }, { id: 'wave', emoji: '🌊' },
-  { id: 'star', emoji: '⭐' }, { id: 'flamingo', emoji: '🦩' }, { id: 'cassette', emoji: '📼' },
-  { id: 'headphones', emoji: '🎧' }, { id: 'ufo', emoji: '🛸' }, { id: 'bolt', emoji: '🌙' }
+  { id: 'cassette',   img: 'avatars/01_cassette.png' },
+  { id: 'palm',       img: 'avatars/02_palm.png' },
+  { id: 'skyline',    img: 'avatars/03_skyline.png' },
+  { id: 'vinyl',      img: 'avatars/04_vinyl.png' },
+  { id: 'boombox',    img: 'avatars/05_boombox.png' },
+  { id: 'car',        img: 'avatars/06_car.png' },
+  { id: 'cocktail',   img: 'avatars/07_cocktail.png' },
+  { id: 'headphones', img: 'avatars/08_headphones.png' },
+  { id: 'cat',        img: 'avatars/09_cat.png' },
+  { id: 'mic',        img: 'avatars/10_mic.png' }
 ];
-const ICON_BY_ID = Object.fromEntries(PLAYER_ICONS.map((i) => [i.id, i.emoji]));
-const iconEmoji = (id) => ICON_BY_ID[id] || '⭐'; // fallback for unknown ids
+const ICON_SRC = Object.fromEntries(PLAYER_ICONS.map((i) => [i.id, i.img]));
+const DEFAULT_ICON = 'palm';
+// Render an avatar as an <img>. Unknown/legacy ids fall back to the default.
+function avatarHtml(id, cls = 'av-img') {
+  const src = ICON_SRC[id] || ICON_SRC[DEFAULT_ICON];
+  return `<img class="${cls}" src="${src}" alt="" />`;
+}
 
 const STREAK_MIN = 3; // consecutive correct answers before a 🔥 streak shows
 const DIFFICULTIES = ['any', 'easy', 'medium', 'hard'];
@@ -279,10 +290,12 @@ $('#joinBtn').addEventListener('click', () => {
 
 // --- Avatar picker (home) — rendered from PLAYER_ICONS, selection persisted. --
 function renderIconPicker() {
+  // Heal a stored id that no longer exists (e.g. an old emoji avatar).
+  if (!ICON_SRC[state.icon]) { state.icon = DEFAULT_ICON; localStorage.setItem('aerooo.icon', state.icon); }
   const grid = $('#iconGrid');
   grid.innerHTML = PLAYER_ICONS.map((ic) =>
     `<button type="button" class="icon-tile ${ic.id === state.icon ? 'sel' : ''}"
-       role="radio" aria-checked="${ic.id === state.icon}" data-icon="${ic.id}">${ic.emoji}</button>`
+       role="radio" aria-checked="${ic.id === state.icon}" data-icon="${ic.id}">${avatarHtml(ic.id, 'tile-img')}</button>`
   ).join('');
 }
 $('#iconGrid').addEventListener('click', (e) => {
@@ -441,7 +454,7 @@ function renderPlayers() {
       ? `<span class="tag-team ${p.team}">${t(TEAM_LABEL[p.team])}</span>` : '';
     return `<li>
       <span class="dot ${p.connected ? 'on' : ''}"></span>
-      <span class="p-avatar">${iconEmoji(p.icon)}</span>
+      <span class="p-avatar">${avatarHtml(p.icon)}</span>
       <span class="pname">${escapeHtml(p.name)}</span>
       ${teamTag}${youBadge}${hostBadge}
     </li>`;
@@ -562,12 +575,17 @@ $('#pauseBtn').addEventListener('click', () => {
   if (!isHost()) return;
   socket.emit(state.paused ? 'resumeGame' : 'pauseGame');
 });
+// Resume control lives INSIDE the overlay (the overlay covers the top pause button).
+$('#resumeBtn').addEventListener('click', () => { if (isHost()) socket.emit('resumeGame'); });
 
 socket.on('paused', () => {
   state.paused = true;
   freezeTimer();
   $('#pauseOverlay').classList.remove('hidden');
   $('#pauseBtn').textContent = '▶';
+  // Host sees a Resume button; everyone else sees "waiting for host".
+  $('#resumeBtn').classList.toggle('hidden', !isHost());
+  $('#waitResume').classList.toggle('hidden', isHost());
   audio.sfx('pause');
 });
 
@@ -788,7 +806,7 @@ function renderLiveScores(players) {
     const cls = ['score-chip'];
     if (p.hasAnswered) cls.push('answered');
     if (state.mode === 'survival' && !p.alive) cls.push('dead');
-    return `<span class="${cls.join(' ')}" data-id="${p.id}">${tdot}<span class="chip-av">${iconEmoji(p.icon)}</span>${escapeHtml(p.name)}${streak} <span class="sc">${shown}</span></span>`;
+    return `<span class="${cls.join(' ')}" data-id="${p.id}">${tdot}<span class="chip-av">${avatarHtml(p.icon)}</span>${escapeHtml(p.name)}${streak} <span class="sc">${shown}</span></span>`;
   }).join('');
 }
 
@@ -902,11 +920,11 @@ socket.on('gameOver', (data) => {
     ).join('');
   } else {
     const top = data.leaderboard[0];
-    banner.textContent = top ? `🏆 ${t('winner')}: ${iconEmoji(top.icon)} ${escapeHtml(top.name)}` : '';
+    banner.innerHTML = top ? `🏆 ${escapeHtml(t('winner'))}: ${avatarHtml(top.icon)} ${escapeHtml(top.name)}` : '';
     list.innerHTML = data.leaderboard.map((row) => {
       const dead = data.mode === 'survival' && !row.alive ? ' style="opacity:.6"' : '';
       return `<li${dead}>
-        <span class="lname"><span class="p-avatar">${iconEmoji(row.icon)}</span> ${escapeHtml(row.name)}</span>
+        <span class="lname"><span class="p-avatar">${avatarHtml(row.icon)}</span> ${escapeHtml(row.name)}</span>
         <span class="lscore">${row.score} ${t('points')}</span>
       </li>`;
     }).join('');
@@ -993,7 +1011,14 @@ function updateMusicUI() {
   muteBtn.textContent = audio.isSilent() ? '🔇' : '🔊';
   muteBtn.classList.toggle('off', audio.isSilent());
 }
-volSlider.addEventListener('input', () => { audio.setVolume(volSlider.value / 100); updateMusicUI(); });
+// IMPORTANT: never write back to the slider's own value during its `input`
+// event — that interrupts the drag and stops it reaching the extremes. We only
+// update the mute icon here; the full sync (updateMusicUI) runs on init/mute.
+volSlider.addEventListener('input', () => {
+  audio.setVolume(volSlider.value / 100);
+  muteBtn.textContent = audio.isSilent() ? '🔇' : '🔊';
+  muteBtn.classList.toggle('off', audio.isSilent());
+});
 sfxSlider.addEventListener('input', () => {
   audio.setSfxVolume(sfxSlider.value / 100);
   audio.sfx('tick', { freq: 760 }); // tiny preview so you can hear the level

@@ -275,9 +275,70 @@ function renderRooms(rooms) {
   }).join('');
 }
 
+// ---------------------------------------------------------------------------
+// Import (public Open Trivia DB + bulk JSON)
+// ---------------------------------------------------------------------------
+const OTDB_CATS = [
+  { id: 0, label: 'Beliebig' }, { id: 9, label: 'Allgemeinwissen' }, { id: 17, label: 'Wissenschaft' },
+  { id: 18, label: 'Computer' }, { id: 19, label: 'Mathematik' }, { id: 21, label: 'Sport' },
+  { id: 22, label: 'Geografie' }, { id: 23, label: 'Geschichte' }, { id: 11, label: 'Film' },
+  { id: 12, label: 'Musik' }, { id: 15, label: 'Videospiele' }, { id: 27, label: 'Tiere' }
+];
+const IMPORT_EXAMPLES = {
+  multiple: [{ cat: 'general', diff: 'easy', prompt: { de: 'Frage?', en: 'Question?' }, correct: { de: 'Richtig', en: 'Right' }, wrong: { de: ['A', 'B', 'C'], en: ['A', 'B', 'C'] } }],
+  truefalse: [{ cat: 'general', diff: 'easy', prompt: { de: 'Eine Aussage.', en: 'A statement.' }, answer: true }],
+  higherlower: [{ cat: 'general', diff: 'medium', prompt: { de: 'Was ist größer?', en: 'Which is bigger?' }, a: { de: 'A', en: 'A' }, aValue: 10, b: { de: 'B', en: 'B' }, bValue: 5, unit: { de: '', en: '' } }],
+  freetext: [{ cat: 'general', diff: 'easy', prompt: { de: 'Frage?', en: 'Question?' }, display: { de: 'Antwort', en: 'Answer' }, accept: { de: ['antwort'], en: ['answer'] } }],
+  estimate: [{ cat: 'general', diff: 'medium', prompt: { de: 'Wie viele?', en: 'How many?' }, value: 42, unit: { de: 'Stück', en: 'pcs' } }]
+};
+
+function setupImport() {
+  $('#otdbCategory').innerHTML = OTDB_CATS.map((c) => `<option value="${c.id}">${c.label}</option>`).join('');
+  $('#otdbDiff').innerHTML = [['any', 'Beliebig'], ['easy', 'Leicht'], ['medium', 'Mittel'], ['hard', 'Schwer']]
+    .map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  $('#importType').innerHTML = TYPES.map((t) => `<option value="${t}">${TYPE_LABELS[t]}</option>`).join('');
+}
+
+$('#otdbBtn').addEventListener('click', async () => {
+  const out = $('#otdbResult');
+  out.textContent = 'Lädt…'; out.className = 'import-result';
+  try {
+    const res = await api('/import-opentdb', { method: 'POST', body: JSON.stringify({
+      amount: $('#otdbAmount').value, category: $('#otdbCategory').value, difficulty: $('#otdbDiff').value
+    }) });
+    const data = await res.json();
+    if (!res.ok) { out.textContent = data.error || 'Fehler'; out.classList.add('err'); return; }
+    out.textContent = `✓ ${data.added} Fragen importiert.`; out.classList.add('ok');
+    await loadQuestions();
+  } catch { out.textContent = 'Netzwerkfehler'; out.classList.add('err'); }
+});
+
+$('#jsonExampleLink').addEventListener('click', (e) => {
+  e.preventDefault();
+  $('#importJson').value = JSON.stringify(IMPORT_EXAMPLES[$('#importType').value], null, 2);
+});
+
+$('#importBtn').addEventListener('click', async () => {
+  const out = $('#importResult');
+  out.className = 'import-result';
+  let questions;
+  try { questions = JSON.parse($('#importJson').value); }
+  catch { out.textContent = 'Ungültiges JSON.'; out.classList.add('err'); return; }
+  if (!Array.isArray(questions)) { out.textContent = 'JSON muss ein Array sein.'; out.classList.add('err'); return; }
+  try {
+    const res = await api('/import', { method: 'POST', body: JSON.stringify({ type: $('#importType').value, questions }) });
+    const data = await res.json();
+    if (!res.ok) { out.textContent = data.error || 'Fehler'; out.classList.add('err'); return; }
+    out.textContent = `✓ ${data.added} importiert${data.failed ? `, ${data.failed} fehlerhaft (${data.errors.map((x) => `#${x.index}: ${x.error}`).join('; ')})` : ''}.`;
+    out.classList.add(data.failed ? 'err' : 'ok');
+    await loadQuestions();
+  } catch { out.textContent = 'Netzwerkfehler'; out.classList.add('err'); }
+});
+
 // Close modal on backdrop click / Escape
 $('#editorModal').addEventListener('click', (e) => { if (e.target.id === 'editorModal') closeEditor(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeEditor(); });
+setupImport();
 
 // ---------------------------------------------------------------------------
 // Boot — resume session if a token is stored.

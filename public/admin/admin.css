@@ -78,6 +78,25 @@ select option { background: var(--night-2); }
 .login-card .btn { width: 100%; margin-top: 8px; }
 .err { color: var(--danger); min-height: 1.2em; font-size: .88rem; margin: 10px 0 0; font-weight: 600; }
 .muted { color: var(--muted); }
+.small { font-size: .82rem; }
+
+/* Import panel */
+.import-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 760px) { .import-grid { grid-template-columns: 1fr; } }
+.import-box { background: rgba(13, 7, 30, .4); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+.import-box h3 { margin: 0 0 6px; font-size: .95rem; }
+.import-box a { color: var(--cyan); }
+.row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+@media (max-width: 480px) { .row3 { grid-template-columns: 1fr; } }
+textarea {
+  width: 100%; padding: 12px; background: rgba(13, 7, 30, .6); border: 1.5px solid var(--line);
+  border-radius: 10px; color: var(--text); font-family: 'DM Mono', monospace; font-size: .8rem; resize: vertical;
+}
+textarea:focus { border-color: var(--magenta); outline: none; box-shadow: 0 0 0 3px rgba(255, 78, 205, .25); }
+.import-box .btn { margin-top: 10px; }
+.import-result { min-height: 1.2em; margin: 10px 0 0; font-size: .85rem; }
+.import-result.ok { color: var(--ok); }
+.import-result.err { color: var(--danger); }
 
 /* ---------- Dashboard ---------- */
 .topbar {

@@ -176,7 +176,12 @@
 
       <!-- Host pause indicator -->
       <div class="pause-overlay hidden" id="pauseOverlay">
-        <div class="pause-card"><span class="pause-ic">⏸</span><span data-i18n="paused">Paused</span></div>
+        <div class="pause-card">
+          <span class="pause-ic">⏸</span>
+          <span data-i18n="paused">Paused</span>
+          <button class="btn neon hidden" id="resumeBtn" data-i18n="resume">Resume</button>
+          <span class="muted small wait-resume hidden" id="waitResume" data-i18n="waitingForHost">Waiting for the host…</span>
+        </div>
       </div>
 
       <div class="card question-card">
