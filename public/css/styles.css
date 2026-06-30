@@ -214,6 +214,16 @@ input, select {
 }
 input::placeholder { color: #7c6caa; }
 input:focus, select:focus { border-color: var(--magenta); box-shadow: 0 0 0 3px rgba(255, 78, 205, 0.28); }
+
+/* Range sliders must NOT inherit the text-input padding/border/background —
+   that pushed the track inside the padding so the thumb couldn't reach 0%/100%.
+   Reset to the native slider so it spans the full width and drags edge to edge. */
+input[type="range"] {
+  -webkit-appearance: auto; appearance: auto;
+  padding: 0; border: none; background: transparent; border-radius: 0;
+  height: auto; box-shadow: none; vertical-align: middle;
+}
+input[type="range"]:focus { box-shadow: none; border: none; }
 select { appearance: none; cursor: pointer; padding-right: 34px;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2345e6ff' stroke-width='2' fill='none'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 14px center; }
