@@ -505,6 +505,10 @@ select.enhanced { display: none; }
 }
 .item-chip:hover { transform: translateY(-2px); box-shadow: 0 0 18px rgba(255, 195, 107, 0.6); }
 .item-chip .item-n { font-family: 'DM Mono', monospace; font-size: 0.7rem; color: var(--gold); }
+/* already-activated modifier: a glowing, non-clickable badge */
+.item-chip.active { cursor: default; border-color: var(--cyan); box-shadow: 0 0 12px rgba(69, 230, 255, 0.45); animation: modPulse 1.4s ease-in-out infinite; }
+.item-chip.active:hover { transform: none; }
+@keyframes modPulse { 50% { opacity: 0.6; } }
 .answer-btn.removed { opacity: 0.25; filter: grayscale(0.8); pointer-events: none; }
 
 /* ---------- Shop ---------- */

@@ -88,7 +88,8 @@ const state = {
   timerInterval: null,
   paused: false,
   myStreak: 0,
-  shopCatalog: null
+  shopCatalog: null,
+  shopOffer: null
 };
 
 // Pick the field of a {de,en} object for the current UI language.
@@ -606,11 +607,13 @@ socket.on('resumed', (data) => {
 // ---------------------------------------------------------------------------
 // Shop + power-ups (wager mode)
 // ---------------------------------------------------------------------------
-const ITEM_ICON = { fifty: '✂️', skip: '⏭️' };
+// Icons keyed by item id / modifier effect.
+const ITEM_ICON = { fifty: '✂️', hint: '💡', skip: '⏭️', double: '2️⃣', shield: '🛡️', insurance: '🪙', boost: '🚀' };
 let shopInterval = 0;
 
 socket.on('shopOpen', (data) => {
-  state.shopCatalog = data.items;   // [{id, price, effect, name{de,en}, desc{de,en}}]
+  state.shopCatalog = data.catalog;  // ALL items (to label any owned power-up)
+  state.shopOffer = data.offer;      // the random subset shown this shop
   state.players = data.players;
   showScreen('shop');
   audio.sfx('shop');
@@ -632,7 +635,8 @@ function renderShop() {
   const me = state.players.find((p) => p.id === state.you);
   const pts = me ? me.score : 0;
   $('#shopPoints').textContent = pts;
-  $('#shopItems').innerHTML = (state.shopCatalog || []).map((item) => {
+  // Only the randomly OFFERED items are shown.
+  $('#shopItems').innerHTML = (state.shopOffer || []).map((item) => {
     const ownedCount = (me?.items || []).filter((x) => x === item.id).length;
     const afford = pts >= item.price;
     return `<div class="shop-item">
@@ -661,16 +665,19 @@ function renderItemBar() {
   const bar = $('#itemBar');
   const me = state.players.find((p) => p.id === state.you);
   const items = me?.items || [];
-  if (!items.length || state.answered) { bar.classList.add('hidden'); bar.innerHTML = ''; return; }
+  const mods = me?.mods || []; // already-activated modifiers (locked in for this round)
+  if (state.answered || (!items.length && !mods.length)) { bar.classList.add('hidden'); bar.innerHTML = ''; return; }
+  const cat = state.shopCatalog || [];
+  const label = (id) => { const n = cat.find((i) => i.id === id)?.name; return escapeHtml(n ? L(n) : id); };
   const counts = {};
   items.forEach((id) => { counts[id] = (counts[id] || 0) + 1; });
-  const cat = state.shopCatalog || [];
   bar.classList.remove('hidden');
-  bar.innerHTML = Object.entries(counts).map(([id, n]) => {
-    const label = cat.find((i) => i.id === id)?.name;
-    return `<button class="item-chip" data-item="${id}" title="${escapeHtml(label ? L(label) : id)}">
-      ${ITEM_ICON[id] || '🎁'}${n > 1 ? `<span class="item-n">×${n}</span>` : ''}</button>`;
-  }).join('');
+  // clickable owned power-ups …
+  const chips = Object.entries(counts).map(([id, n]) =>
+    `<button class="item-chip" data-item="${id}" title="${label(id)}">${ITEM_ICON[id] || '🎁'}${n > 1 ? `<span class="item-n">×${n}</span>` : ''}</button>`);
+  // … plus non-clickable badges for modifiers already activated this round.
+  const active = mods.map((eff) => `<span class="item-chip active" title="${label(eff)}">${ITEM_ICON[eff] || '⭐'}</span>`);
+  bar.innerHTML = chips.concat(active).join('');
 }
 
 $('#itemBar').addEventListener('click', (e) => {
@@ -683,16 +690,19 @@ socket.on('playerItems', (data) => { state.players = data.players; renderItemBar
 
 socket.on('itemUsed', (data) => {
   audio.sfx('purchase');
-  if (data.itemId === 'fifty' && Array.isArray(data.remove)) {
+  if ((data.effect === 'fifty' || data.effect === 'hint') && Array.isArray(data.remove)) {
+    // remove the wrong option(s) for this player
     data.remove.forEach((i) => {
       const b = document.querySelector(`.answer-btn[data-i="${i}"]`);
       if (b) { b.classList.add('removed'); b.disabled = true; }
     });
-  } else if (data.itemId === 'skip') {
+  } else if (data.effect === 'skip') {
     state.answered = true;
     $$('.answer-btn').forEach((b) => (b.disabled = true));
     setStatus('skipped', 'dim');
   }
+  // modifier effects (double/shield/insurance/boost) just show as an active
+  // badge via renderItemBar() — they apply automatically when the round scores.
   renderItemBar();
 });
 

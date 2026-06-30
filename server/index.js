@@ -181,20 +181,55 @@ const WAGER_LOSS_FACTOR = 1;
 const WAGER_COMEBACK = 100;
 
 // ---------------------------------------------------------------------------
-// Shop (wager mode only). A shop phase opens after every SHOP_EVERY questions
-// (but not at the very end). Add/space items here — `effect` drives behaviour.
+// Shop (wager mode only). The shop opens at a RANDOM gap between SHOP_MIN_GAP
+// and SHOP_MAX_GAP questions (so it's less frequent and not predictable). Only
+// SHOP_OFFER_COUNT random items out of SHOP_ITEMS are shown each time.
+//
+// Two kinds of items by `effect`:
+//   • instant  (fifty/hint/skip) — acted on immediately during the question
+//   • modifier (double/shield/insurance/boost) — flagged on the player and
+//     applied when the round is scored (see revealAnswer).
+// Add a new item by adding an entry here + its effect handling (useItem and/or
+// the scoring branch) + a client icon in ITEM_ICON (public/js/main.js).
 // ---------------------------------------------------------------------------
-const SHOP_EVERY = 3;       // open the shop after every 3 questions
-const SHOP_DURATION = 22;   // seconds the shop stays open
+const SHOP_DURATION = 22;     // seconds the shop stays open
+const SHOP_OFFER_COUNT = 3;   // how many random items are shown per shop
+const SHOP_MIN_GAP = 4;       // earliest the shop can reappear (questions)
+const SHOP_MAX_GAP = 7;       // forced to appear by this many questions
+const SHOP_CHANCE = 0.45;     // probability per question once the min gap is reached
+
 const SHOP_ITEMS = [
   { id: 'fifty', price: 300, effect: 'fifty',
     name: { de: '50/50-Joker', en: '50/50' },
-    desc: { de: 'Entfernt zwei falsche Antworten bei einer Frage.', en: 'Removes two wrong answers on a question.' } },
+    desc: { de: 'Entfernt zwei falsche Antworten.', en: 'Removes two wrong answers.' } },
+  { id: 'hint', price: 150, effect: 'hint',
+    name: { de: 'Tipp', en: 'Hint' },
+    desc: { de: 'Entfernt eine falsche Antwort.', en: 'Removes one wrong answer.' } },
   { id: 'skip', price: 250, effect: 'skip',
     name: { de: 'Frage überspringen', en: 'Skip question' },
-    desc: { de: 'Überspringe eine Frage ohne Punktverlust.', en: 'Skip a question with no point loss.' } }
+    desc: { de: 'Überspringe eine Frage ohne Punktverlust.', en: 'Skip a question, no point loss.' } },
+  { id: 'double', price: 350, effect: 'double',
+    name: { de: 'Verdopplung', en: 'Double up' },
+    desc: { de: 'Richtig? Dein Einsatz zählt diese Runde doppelt.', en: 'If correct, your stake counts double.' } },
+  { id: 'shield', price: 300, effect: 'shield',
+    name: { de: 'Schutzschild', en: 'Shield' },
+    desc: { de: 'Falsch? Du verlierst diese Runde nichts.', en: 'If wrong, you lose nothing this round.' } },
+  { id: 'insurance', price: 200, effect: 'insurance',
+    name: { de: 'Versicherung', en: 'Insurance' },
+    desc: { de: 'Falsch? Du verlierst nur die Hälfte.', en: 'If wrong, you lose only half.' } },
+  { id: 'boost', price: 250, effect: 'boost',
+    name: { de: 'Bonus +100', en: 'Bonus +100' },
+    desc: { de: 'Richtig? +100 Extra-Punkte.', en: 'If correct, +100 extra points.' } }
 ];
 const shopItem = (id) => SHOP_ITEMS.find((i) => i.id === id);
+const MODIFIER_EFFECTS = ['double', 'shield', 'insurance', 'boost'];
+
+// Fisher-Yates shuffle (returns a new array).
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
 
 // Teams a player can belong to. Add more ids here (and a matching colour in the
 // client CSS / TEAM_LABEL) to support more than two teams.
@@ -234,7 +269,8 @@ function createRoom(hostId) {
     players: new Map(),
     questions: [], currentIndex: -1, questionStartedAt: 0,
     timer: null, revealTimer: null, shopTimer: null,
-    paused: false, remainingMs: 0
+    paused: false, remainingMs: 0,
+    sinceShop: 0, shopOffer: []
   };
   rooms.set(code, room);
   return room;
@@ -247,14 +283,14 @@ function newPlayer(id, name, team, icon) {
     id, name, icon, score: 0, alive: true, team,
     answer: null, answerText: '', answered: false, answerTime: 0,
     wager: 0, lastGain: 0, lastCorrect: false, streak: 0,
-    items: [], skipped: false, connected: true
+    items: [], mods: [], skipped: false, connected: true
   };
 }
 
 function publicPlayers(room) {
   return [...room.players.values()].map((p) => ({
     id: p.id, name: p.name, icon: p.icon, score: p.score, alive: p.alive, team: p.team,
-    streak: p.streak, items: p.items, connected: p.connected, isHost: p.id === room.hostId, hasAnswered: p.answered
+    streak: p.streak, items: p.items, mods: p.mods, connected: p.connected, isHost: p.id === room.hostId, hasAnswered: p.answered
   }));
 }
 
@@ -305,8 +341,9 @@ function startGame(room) {
     p.score = cfg.startScore || 0;
     p.alive = true; p.answer = null; p.answerText = ''; p.answered = false;
     p.answerTime = 0; p.wager = 0; p.lastGain = 0; p.lastCorrect = false; p.streak = 0;
-    p.items = []; p.skipped = false;
+    p.items = []; p.mods = []; p.skipped = false;
   }
+  room.sinceShop = 0; // reset the shop gap counter for the new game
 
   room.questions = buildRound(cfg.type, {
     amount: room.settings.amount,
@@ -342,6 +379,7 @@ function nextQuestion(room) {
   for (const p of room.players.values()) {
     p.answer = null; p.answerText = ''; p.answered = false; p.answerTime = 0;
     p.wager = 0; p.lastGain = 0; p.lastCorrect = false; p.skipped = false;
+    p.mods = []; // active power-up modifiers only last for one question
   }
 
   room.state = 'question';
@@ -395,13 +433,18 @@ function revealAnswer(room) {
 
       if (cfg.score === 'wager') {
         const w = p.wager || 0;
+        const mods = p.mods || [];
         if (correct) {
           // COMEBACK rule: a broke player (0 pts) who answers correctly always
           // gets at least WAGER_COMEBACK, so nobody is permanently stuck at 0.
-          const gain = (p.score === 0 && w < WAGER_COMEBACK) ? WAGER_COMEBACK : w;
+          let gain = (p.score === 0 && w < WAGER_COMEBACK) ? WAGER_COMEBACK : w;
+          if (mods.includes('double')) gain *= 2;   // Verdopplung power-up
+          if (mods.includes('boost')) gain += 100;   // Bonus +100 power-up
           p.score += gain; p.lastGain = gain;
         } else {
-          const loss = Math.min(Math.round(w * WAGER_LOSS_FACTOR), p.score);
+          let loss = Math.min(Math.round(w * WAGER_LOSS_FACTOR), p.score);
+          if (mods.includes('shield')) loss = 0;                    // Schutzschild
+          else if (mods.includes('insurance')) loss = Math.round(loss / 2); // Versicherung
           p.score -= loss; p.lastGain = -loss;
         }
       } else if (correct) {
@@ -457,20 +500,29 @@ function revealAnswer(room) {
   room.revealTimer = setTimeout(() => afterReveal(room), REVEAL_MS);
 }
 
-// After a reveal: open the shop on a shop boundary (wager mode), else continue.
+// After a reveal: maybe open the shop (wager mode), else go to the next question.
+// The shop appears at a RANDOM gap: never before SHOP_MIN_GAP questions, a
+// SHOP_CHANCE roll after that, and forced by SHOP_MAX_GAP.
 function afterReveal(room) {
   const cfg = MODE_CONFIG[room.settings.mode];
-  const done = room.currentIndex + 1;                 // questions completed
-  const moreLeft = done < room.questions.length;
-  if (cfg.shop && moreLeft && done % SHOP_EVERY === 0) openShop(room);
+  const moreLeft = room.currentIndex + 1 < room.questions.length;
+  room.sinceShop = (room.sinceShop || 0) + 1;
+  const due = room.sinceShop >= SHOP_MIN_GAP &&
+    (room.sinceShop >= SHOP_MAX_GAP || Math.random() < SHOP_CHANCE);
+  if (cfg.shop && moreLeft && due) openShop(room);
   else nextQuestion(room);
 }
 
 function openShop(room) {
   clearRoomTimers(room);
   room.state = 'shop';
+  room.sinceShop = 0;
+  // Offer SHOP_OFFER_COUNT RANDOM items (out of all SHOP_ITEMS) this time.
+  room.shopOffer = shuffle(SHOP_ITEMS).slice(0, SHOP_OFFER_COUNT).map((i) => i.id);
+  const offered = room.shopOffer.map(shopItem);
   io.to(room.code).emit('shopOpen', {
-    items: SHOP_ITEMS,
+    catalog: SHOP_ITEMS,   // full list (so the in-game item bar can label any owned item)
+    offer: offered,        // the random subset shown in the shop this time
     time: SHOP_DURATION,
     players: publicPlayers(room)
   });
@@ -657,7 +709,8 @@ io.on('connection', (socket) => {
     if (!room || room.state !== 'shop') return;
     const player = room.players.get(socket.id);
     const item = shopItem(itemId);
-    if (!player || !item || player.score < item.price) return;
+    // Only items actually OFFERED this shop can be bought.
+    if (!player || !item || !room.shopOffer.includes(itemId) || player.score < item.price) return;
     player.score -= item.price;
     player.items.push(item.id);
     io.to(room.code).emit('shopUpdate', { players: publicPlayers(room) });
@@ -675,27 +728,33 @@ io.on('connection', (socket) => {
     const room = rooms.get(socket.data.roomCode);
     if (!room || room.state !== 'question') return;
     const player = room.players.get(socket.id);
-    if (!player) return;
+    if (!player || player.answered) return; // can only use a power-up before answering
     const idx = player.items.indexOf(itemId);
     if (idx < 0) return;
+    const item = shopItem(itemId);
+    if (!item) return;
     const q = room.questions[room.currentIndex];
 
-    if (itemId === 'fifty') {
-      if (q.type !== 'multiple' || player.answered) return;
-      // Remove two random WRONG options for this player (keep correct + 1 wrong).
-      const wrong = q.options.map((_, i) => i).filter((i) => i !== q.correctIndex);
-      for (let i = wrong.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [wrong[i], wrong[j]] = [wrong[j], wrong[i]]; }
-      const remove = wrong.slice(0, 2);
+    if (item.effect === 'fifty' || item.effect === 'hint') {
+      // Remove N random WRONG options for this player (keep correct + the rest).
+      if (q.type !== 'multiple') return;
+      const n = item.effect === 'fifty' ? 2 : 1;
+      const wrong = shuffle(q.options.map((_, i) => i).filter((i) => i !== q.correctIndex));
       player.items.splice(idx, 1);
-      socket.emit('itemUsed', { itemId, remove });               // only the buyer
+      socket.emit('itemUsed', { itemId, effect: item.effect, remove: wrong.slice(0, n) }); // only the buyer
       io.to(room.code).emit('playerItems', { players: publicPlayers(room) });
-    } else if (itemId === 'skip') {
-      if (player.answered) return;
+    } else if (item.effect === 'skip') {
       player.items.splice(idx, 1);
       player.answered = true; player.skipped = true; player.answer = null;
-      socket.emit('itemUsed', { itemId });
+      socket.emit('itemUsed', { itemId, effect: 'skip' });
       io.to(room.code).emit('playerAnswered', { id: socket.id, players: publicPlayers(room) });
       maybeAllAnswered(room);
+    } else if (MODIFIER_EFFECTS.includes(item.effect)) {
+      // Scoring modifier — flag it; applied when the round is scored.
+      if (!player.mods.includes(item.effect)) player.mods.push(item.effect);
+      player.items.splice(idx, 1);
+      socket.emit('itemUsed', { itemId, effect: item.effect });
+      io.to(room.code).emit('playerItems', { players: publicPlayers(room) });
     }
   });
 
