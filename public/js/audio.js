@@ -33,9 +33,14 @@ export class AudioManager {
     this.bgStarted = false;
     this._fadeTimer = 0;
 
+    // MUSIC volume is the SINGLE SOURCE OF TRUTH: the slider value IS the volume
+    // (0 = silent, 1 = full). No separate "muted" flag → slider and actual
+    // volume can never desync. `lastVolume` only remembers a level for the
+    // mute button to toggle back to.
     let v = parseFloat(localStorage.getItem('aerooo.vol'));
     this.volume = Number.isFinite(v) ? clamp(v, 0, 1) : defaultVolume;
-    this.muted = localStorage.getItem('aerooo.muted') === '1';
+    let lv = parseFloat(localStorage.getItem('aerooo.lastvol'));
+    this.lastVolume = Number.isFinite(lv) && lv > 0 ? clamp(lv, 0, 1) : (this.volume > 0 ? this.volume : defaultVolume);
 
     // SFX
     let sv = parseFloat(localStorage.getItem('aerooo.sfx'));
@@ -44,31 +49,31 @@ export class AudioManager {
     this.sfxGain = null;   // master gain for all SFX → driven by the SFX slider
   }
 
-  /** Effective MUSIC level after the mute switch (0 when muted). */
-  get level() { return this.muted ? 0 : this.volume; }
+  /** Effective MUSIC level — equals the volume (0 = silent). */
+  get level() { return this.volume; }
 
   // ---- public control surface (wired to the sliders/mute button) ----------
   setVolume(v) {
-    this.volume = clamp(v, 0, 1);   // exact 0..1 mapping ⇒ slider 0%..100% works fully
-    if (this.volume > 0) this.muted = false;
+    this.volume = clamp(v, 0, 1);     // exact 0..1 mapping ⇒ 0% = mute, 100% = full
+    if (this.volume > 0) this.lastVolume = this.volume;
     this._persist();
     this._applyLive(); // update whichever track is currently audible
   }
 
   setSfxVolume(v) {
-    this.sfxVolume = clamp(v, 0, 1);
+    this.sfxVolume = clamp(v, 0, 1);  // 0 = no SFX, 1 = full
     if (this.sfxGain) this.sfxGain.gain.value = this.sfxVolume;
     localStorage.setItem('aerooo.sfx', String(this.sfxVolume));
   }
   getSfxVolume() { return this.sfxVolume; }
 
+  // Mute button = quick toggle between 0 and the last non-zero volume. This
+  // moves the slider too (handled by the UI), so they stay in sync.
   toggleMute() {
-    this.muted = !this.muted;
-    this._persist();
-    this._applyLive();
+    this.setVolume(this.volume > 0 ? 0 : (this.lastVolume || 0.4));
   }
 
-  isSilent() { return this.muted || this.volume === 0; }
+  isSilent() { return this.volume === 0; }
 
   // ---- SFX engine (Web Audio synth) ---------------------------------------
   /** Create/resume the audio context. Call on the first user gesture. */
@@ -157,7 +162,7 @@ export class AudioManager {
 
   _persist() {
     localStorage.setItem('aerooo.vol', String(this.volume));
-    localStorage.setItem('aerooo.muted', this.muted ? '1' : '0');
+    localStorage.setItem('aerooo.lastvol', String(this.lastVolume));
   }
 
   /**

@@ -211,20 +211,41 @@ function shuffle(array) {
  * @param {object} opts    { amount, category, difficulty }
  * @returns {Array} normalized round objects (include answer keys, server-side only)
  */
-export function buildRound(bank, type, { amount = 10, category = 0, difficulty = 'any' } = {}) {
+// --- Question ROTATION state -------------------------------------------------
+// Per type we remember which question ids were already served, so a new round
+// serves UNSEEN questions first and only repeats once the (filtered) pool is
+// exhausted — then a fresh cycle starts.
+const usedByType = new Map(); // type -> Set<id>
+
+export function buildRound(bank, type, { amount = 10, category = 'any', difficulty = 'any' } = {}) {
   let pool = (bank && bank[type]) || [];
 
-  // category here is the OpenTDB-style id mapping; we filter by our cat keys.
-  if (category && category !== 0) {
-    const key = CATEGORY_ID_TO_KEY[category];
-    if (key) pool = pool.filter((q) => q.cat === key);
+  // --- CATEGORY FILTER: direct key match (e.g. 'animals'). 'any'/0 = all. ---
+  if (category && category !== 'any' && category !== 0) {
+    pool = pool.filter((q) => q.cat === category);
   }
+  // --- DIFFICULTY FILTER (kept lenient so a round always has enough items) ---
   if (difficulty && difficulty !== 'any') {
     const filtered = pool.filter((q) => q.diff === difficulty);
-    if (filtered.length >= 3) pool = filtered; // keep enough to play
+    if (filtered.length >= 3) pool = filtered;
   }
+  if (!pool.length) return [];
 
-  const picked = shuffle(pool).slice(0, Math.min(amount, pool.length));
+  const want = Math.min(amount, pool.length);
+
+  // --- ROTATION: take unseen questions first, then (if needed) start a new
+  // cycle and fill the rest, so nothing repeats until the pool is used up. ---
+  let used = usedByType.get(type);
+  if (!used) { used = new Set(); usedByType.set(type, used); }
+
+  let picked = shuffle(pool.filter((q) => !used.has(q.id))).slice(0, want);
+  if (picked.length < want) {
+    used.clear(); // pool exhausted → begin a fresh cycle
+    const more = shuffle(pool.filter((q) => !picked.includes(q))).slice(0, want - picked.length);
+    picked = picked.concat(more);
+  }
+  picked.forEach((q) => used.add(q.id));
+
   return picked.map((q) => normalize(type, q));
 }
 

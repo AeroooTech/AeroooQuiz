@@ -176,6 +176,9 @@ const MODES = Object.keys(MODE_CONFIG);
 // Wager mode: fraction of the stake LOST on a wrong answer.
 // 1 = lose the whole stake, 0.5 = lose half, 0 = lose nothing. Change freely.
 const WAGER_LOSS_FACTOR = 1;
+// Wager mode safety net: a player at 0 points who answers correctly gains at
+// least this much (so losing everything once isn't game-over). Set 0 to disable.
+const WAGER_COMEBACK = 100;
 
 // ---------------------------------------------------------------------------
 // Shop (wager mode only). A shop phase opens after every SHOP_EVERY questions
@@ -198,8 +201,13 @@ const shopItem = (id) => SHOP_ITEMS.find((i) => i.id === id);
 const TEAMS = ['red', 'blue', 'green', 'yellow'];
 const REVEAL_MS = 4200;
 
+// CATEGORY KEYS the question bank actually uses (must match q.cat in the bank
+// and cat_<key> in i18n). 'any' = no filter. Add a key here + tag questions
+// with it + add a cat_<key> i18n string to introduce a new category.
+const GAME_CATEGORIES = ['any', 'general', 'science', 'geography', 'history', 'animals'];
+
 const DEFAULT_SETTINGS = {
-  mode: 'classic', category: 0, difficulty: 'any', amount: 10, questionTime: 20,
+  mode: 'classic', category: 'any', difficulty: 'any', amount: 10, questionTime: 20,
   teamMode: false, // false = Alle gegen alle (FFA), true = Teams
   streaks: true    // show/sound streaks for consecutive correct answers
 };
@@ -387,8 +395,15 @@ function revealAnswer(room) {
 
       if (cfg.score === 'wager') {
         const w = p.wager || 0;
-        if (correct) { p.score += w; p.lastGain = w; }
-        else { const loss = Math.min(Math.round(w * WAGER_LOSS_FACTOR), p.score); p.score -= loss; p.lastGain = -loss; }
+        if (correct) {
+          // COMEBACK rule: a broke player (0 pts) who answers correctly always
+          // gets at least WAGER_COMEBACK, so nobody is permanently stuck at 0.
+          const gain = (p.score === 0 && w < WAGER_COMEBACK) ? WAGER_COMEBACK : w;
+          p.score += gain; p.lastGain = gain;
+        } else {
+          const loss = Math.min(Math.round(w * WAGER_LOSS_FACTOR), p.score);
+          p.score -= loss; p.lastGain = -loss;
+        }
       } else if (correct) {
         let pts = 100;
         if (cfg.score === 'speed') {
@@ -560,7 +575,7 @@ io.on('connection', (socket) => {
     if (room.state !== 'lobby' && room.state !== 'ended') return;
     const s = room.settings;
     if (MODES.includes(settings.mode)) s.mode = settings.mode;
-    if (CATEGORIES.some((c) => c.id === Number(settings.category))) s.category = Number(settings.category);
+    if (GAME_CATEGORIES.includes(settings.category)) s.category = settings.category; // category is a key now
     if (['any', 'easy', 'medium', 'hard'].includes(settings.difficulty)) s.difficulty = settings.difficulty;
     if (Number.isFinite(+settings.amount)) s.amount = Math.min(Math.max(Math.round(+settings.amount), 3), 30);
     if (Number.isFinite(+settings.questionTime)) s.questionTime = Math.min(Math.max(Math.round(+settings.questionTime), 5), 90);

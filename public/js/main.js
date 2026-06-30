@@ -58,11 +58,12 @@ function avatarHtml(id, cls = 'av-img') {
 
 const STREAK_MIN = 3; // consecutive correct answers before a 🔥 streak shows
 const DIFFICULTIES = ['any', 'easy', 'medium', 'hard'];
+// Only the categories the question bank actually contains (key = q.cat). This
+// is why the filter now works: picking one returns ONLY that category. Keep in
+// sync with GAME_CATEGORIES on the server.
 const CATEGORIES = [
-  { id: 0, key: 'any' }, { id: 9, key: 'general' }, { id: 17, key: 'science' },
-  { id: 18, key: 'computers' }, { id: 19, key: 'maths' }, { id: 21, key: 'sports' },
-  { id: 22, key: 'geography' }, { id: 23, key: 'history' }, { id: 11, key: 'film' },
-  { id: 12, key: 'music' }, { id: 15, key: 'videogames' }, { id: 27, key: 'animals' }
+  { key: 'any' }, { key: 'general' }, { key: 'science' },
+  { key: 'geography' }, { key: 'history' }, { key: 'animals' }
 ];
 const TEAMS = ['red', 'blue', 'green', 'yellow'];
 const TEAM_LABEL = { red: 'team_red', blue: 'team_blue', green: 'team_green', yellow: 'team_yellow' };
@@ -157,7 +158,7 @@ $('#langSwitch').addEventListener('click', (e) => {
 function populateSelects() {
   const catSel = $('#categorySelect');
   const diffSel = $('#difficultySelect');
-  catSel.innerHTML = CATEGORIES.map((c) => `<option value="${c.id}">${t('cat_' + c.key)}</option>`).join('');
+  catSel.innerHTML = CATEGORIES.map((c) => `<option value="${c.key}">${t('cat_' + c.key)}</option>`).join('');
   diffSel.innerHTML = DIFFICULTIES.map((d) => `<option value="${d}">${t('diff_' + d)}</option>`).join('');
   refreshAllSelects();
 }
@@ -355,7 +356,7 @@ function pushSettings() {
     mode: getSelectedMode(),
     teamMode: $('#teamToggle .active')?.dataset.teamMode === 'teams',
     streaks: $('#streakToggle .active')?.dataset.streaks === 'on',
-    category: Number($('#categorySelect').value),
+    category: $('#categorySelect').value, // category is a key string now
     difficulty: $('#difficultySelect').value,
     amount: Number($('#amountInput').value),
     questionTime: Number($('#timeInput').value)
@@ -426,7 +427,7 @@ function syncSettingsToUI() {
   setModeSelected(s.mode);
   setTeamMode(!!s.teamMode);
   setStreaks(s.streaks !== false);
-  $('#categorySelect').value = String(s.category);
+  $('#categorySelect').value = s.category;
   $('#difficultySelect').value = s.difficulty;
   $('#amountInput').value = s.amount;
   $('#timeInput').value = s.questionTime;
