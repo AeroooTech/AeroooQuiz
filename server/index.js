@@ -16,7 +16,15 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 app.use(express.json({ limit: '256kb' }));
-app.use(express.static(path.join(__dirname, '..', 'public')));
+// Serve the client with revalidation so players never run a STALE cached build
+// after a redeploy (a cached old main.js was why new features like the shop only
+// appeared for some players). `no-cache` = may cache but must revalidate via ETag.
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  etag: true,
+  setHeaders: (res, filePath) => {
+    if (/\.(html|js|css)$/i.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
+  }
+}));
 
 const PORT = process.env.PORT || 3000;
 

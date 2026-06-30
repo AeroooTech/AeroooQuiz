@@ -504,11 +504,12 @@ socket.on('roomUpdate', (data) => {
   renderTeamPicker();
   applyHostControls();
 
+  // Only auto-jump to the lobby from a "resting" screen — never yank a player
+  // out of an active game flow (game / shop / loading / game-over).
   if (data.state === 'lobby' || data.state === 'ended') {
-    if (!$('#screen-game').classList.contains('active') &&
-        !$('#screen-over').classList.contains('active')) {
-      showScreen('lobby');
-    }
+    const inFlow = ['screen-game', 'screen-shop', 'screen-loading', 'screen-over']
+      .some((id) => document.getElementById(id).classList.contains('active'));
+    if (!inFlow) showScreen('lobby');
   }
 });
 
